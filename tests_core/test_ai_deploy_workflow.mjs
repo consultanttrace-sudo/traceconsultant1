@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+const source=await (await import('node:fs/promises')).readFile('netlify/functions/ai-deploy.js','utf8');
+assert.match(source,/action==='request'/);assert.match(source,/action==='confirm'/);assert.match(source,/b\.confirm!==true/);assert.match(source,/status=eq\.pending/);assert.match(source,/TRACE_NETLIFY_BUILD_HOOK_URL/);assert.match(source,/status:'executed'/);assert.match(source,/isLeader/);assert.match(source,/scopeHash/);
+const maintenance=await (await import('node:fs/promises')).readFile('src/core/aiMaintenance.ts','utf8');
+assert.match(maintenance,/canDeployAfterExplicitApproval/);assert.match(maintenance,/explicit_approval_valid/);
+console.log('AI deploy workflow contract: PASS');
+assert(source.includes("status=eq.pending") && source.includes("status:'approved'"), 'deployment approval must be atomically claimed');
+assert(source.includes("return=representation"), 'deployment claim must return the claimed row');
+assert(source.includes("status:'rejected'"), 'failed/mismatched deployment claim must be rejected');
+console.log('AI deploy concurrency claim: PASS');

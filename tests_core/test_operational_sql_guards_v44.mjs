@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const root = new URL('..', import.meta.url);
+const migration = fs.readFileSync(new URL('supabase/migrations/009_trace_workflow_integrity_guards.sql', root), 'utf8');
+assert.match(migration, /trace_job_status_guard/);
+assert.match(migration, /TRACE_JOB_INVALID_STATUS_TRANSITION/);
+assert.match(migration, /trace_checkpoint_sequence_guard/);
+assert.match(migration, /TRACE_CHECKPOINT_SEQUENCE_NOT_MONOTONIC/);
+assert.match(migration, /trace_data_intake_status_guard/);
+assert.match(migration, /TRACE_IMPORT_INVALID_STATUS_TRANSITION/);
+console.log('test_operational_sql_guards_v44: PASS');

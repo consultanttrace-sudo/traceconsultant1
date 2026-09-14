@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const main=fs.readFileSync('src/app/main.tsx','utf8');
+assert.match(main,/aggregateDelimitedRows/);
+assert.match(main,/applyManualCompletion/);
+assert.match(main,/Approve import/);
+const tele=fs.readFileSync('netlify/functions/diagnostic-telemetry.js','utf8');
+assert.match(tele,/security.*usage|usage.*security/);
+const auth=fs.readFileSync('netlify/functions/_auth.js','utf8');
+assert.match(auth,/process\.env\.URL/);
+assert.doesNotMatch(auth,/\[\^\/\]\+\\\.netlify/);
+const imports=fs.readFileSync('netlify/functions/data-intake-import.js','utf8');
+assert.match(imports,/sourceHash/); assert.match(imports,/idempotent/); assert.match(imports,/bounded/);
+const guard=fs.readFileSync('supabase/migrations/008_trace_data_intake_approval_guard.sql','utf8');
+assert.match(guard,/TRACE_IMPORT_PROVENANCE_IMMUTABLE/); assert.match(guard,/TRACE_IMPORT_COMMIT_SERVER_ONLY/);
+console.log('Phase 9 audit hardening contract: PASS');

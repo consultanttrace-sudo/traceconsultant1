@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const p=fs.readFileSync(new URL('../netlify/functions/acq-social-intel.js',import.meta.url),'utf8');
+assert.match(p,/SOCIAL_TIMEOUT_MS/);
+assert.match(p,/SOCIAL_GLOBAL_DEADLINE_MS/);
+assert.match(p,/SOCIAL_CONCURRENCY/);
+assert.match(p,/evidence_coverage_pct/);
+assert.match(p,/Evidence-derived scoring/);
+assert.doesNotMatch(p,/const brand=Math\.min\(100,45\+/);
+console.log('social intelligence contract: PASS');

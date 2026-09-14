@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { createEmptyDiagnosticCenterSnapshot } from '../dist/core/diagnosticCenter.js';
+const s=createEmptyDiagnosticCenterSnapshot('2026-09-09T00:00:00.000Z');
+assert.equal(s.readOnly,true);
+assert.ok(s.sources.some(x=>x.id==='source'));
+assert.ok(s.sources.some(x=>x.id==='supabase' && x.status==='unavailable'));
+assert.ok(s.sources.some(x=>x.id==='ide' && x.status==='unavailable'));
+console.log('Diagnostic Center contract: PASS');
+import fs from 'node:fs';
+import path from 'node:path';
+const root=process.cwd();
+assert.ok(fs.existsSync(path.join(root,'netlify/functions/diagnostic-run.js')));
+assert.ok(fs.existsSync(path.join(root,'netlify/functions/diagnostic-telemetry.js')));
+const manifest=JSON.parse(fs.readFileSync(path.join(root,'netlify/functions/_diagnostic-manifest.json'),'utf8'));
+assert.ok(manifest.files.every(f=>!/(SUPABASE_ANON_KEY\s*=\s*['"])(?!\[REDACTED_)/.test(f.content)));
+console.log('Diagnostic live bridge/redaction contract: PASS');

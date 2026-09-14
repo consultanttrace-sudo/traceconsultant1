@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const root = new URL('..', import.meta.url);
+const url = fs.readFileSync(new URL('netlify/functions/_url.js', root), 'utf8');
+const enrich = fs.readFileSync(new URL('netlify/functions/acq-social-enrich.js', root), 'utf8');
+const intel = fs.readFileSync(new URL('netlify/functions/acq-social-intel.js', root), 'utf8');
+assert.match(url, /redirect:'manual'/, 'public fetch must not blindly follow redirects');
+assert.match(url, /isPublicHttpUrl\(target\)/, 'every redirect target must be revalidated');
+assert.match(url, /maxRedirects=3/, 'redirect chain must be bounded');
+assert.match(enrich, /fetchPublicUrl\(website/);
+assert.match(intel, /fetchPublicUrl\(item\.url/);
+assert.match(intel, /fetchPublicUrl\(item\.url,[^\n]+timeoutMs,3/);
+assert.equal(fs.readFileSync(new URL('features/acquisition_os/netlify/functions/_url.js', root), 'utf8'), url, 'legacy and canonical URL guards must match');
+console.log('test_ssrf_redirect_guards_v44: PASS');

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const s=fs.readFileSync('supabase/migrations/012_trace_task_atomic_transition.sql','utf8');
+assert.match(s,/TRACE_TASK_VERSION_MISMATCH/);
+assert.match(s,/TRACE_TASK_EVIDENCE_REQUIRED/);
+assert.match(s,/for update/);
+assert.match(s,/where id=p_task_id and version=p_expected_version/);
+assert.match(s,/trace_audit_log/);
+assert.match(s,/revoke all on function public\.trace_transition_collaboration_task/);
+const fix=fs.readFileSync('supabase/migrations/013_trace_collaboration_governance_fix.sql','utf8');
+assert.match(fix,/old_status := t\.status/);
+assert.match(fix,/TRACE_AUDIT_INVALID_ACTION/);
+assert.match(fix,/with check\(public\.trace_is_team_member\(\)\)/);
+assert.match(fix,/TRACE_TASK_INVALID_STATUS/);
+console.log('Task SQL atomic guard regression: PASS');
+console.log('Additive governance fix migration: PASS');

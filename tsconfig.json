@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmitOnError": true,
+    "skipLibCheck": true,
+    "outDir": "dist/core",
+    "rootDir": "src/core"
+  },
+  "include": [
+    "src/core/**/*.ts"
+  ],
+  "exclude": [
+    "src/core/fileIntakeAdapters.ts",
+    "src/core/financeReport.ts"
+  ]
+}

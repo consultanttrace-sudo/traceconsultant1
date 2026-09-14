@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const index=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
+assert.match(index,/const __traceSaveQueues = new Map\(\)/);
+assert.match(index,/previous\.catch\(\(\) => undefined\)\.then/);
+assert.match(index,/writeAttempts = 3/);
+assert.match(index,/writeTimeoutMs = 15000/);
+assert.match(index,/if \(lastWriteError\) throw lastWriteError/);
+assert.match(index,/return false;/);
+console.log('persistence hardening v47: PASS');

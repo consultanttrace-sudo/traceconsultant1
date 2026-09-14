@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const pkg=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8'));
+const all={...(pkg.dependencies||{}),...(pkg.devDependencies||{})};
+assert.equal(Object.values(all).some(v=>v==='latest'),false,'No root dependency may remain latest');
+assert.equal(fs.readFileSync(new URL('../.nvmrc',import.meta.url),'utf8').trim(),'22.22.2');
+assert.equal(fs.readFileSync(new URL('../.node-version',import.meta.url),'utf8').trim(),'22.22.2');
+const netlify=fs.readFileSync(new URL('../netlify.toml',import.meta.url),'utf8');
+assert.match(netlify,/NODE_VERSION\s*=\s*"22\.22\.2"/);
+console.log('release environment policy: PASS');

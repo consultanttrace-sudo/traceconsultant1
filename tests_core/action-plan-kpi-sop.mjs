@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+const action=await import('../dist/core/actionPlan.js');
+const kpi=await import('../dist/core/kpi.js');
+const sop=await import('../dist/core/sop.js');
+const plan=action.buildActionPlan({clientId:'c1',objective:'Improve margin',items:[{id:'a1',title:'Reduce waste',owner:'ops',priority:'P1',status:'completed',measure:'waste_pct',baseline:8,target:5,evidence:[{source:'inventory',period:'2026-08',value:5}],dependencies:[]}]});
+assert.equal(action.summarizeActionPlan(plan).completionPct,100);
+assert.throws(()=>action.buildActionPlan({clientId:'c1',objective:'x',items:[{id:'a',title:'x',owner:'o',priority:'P1',status:'completed',measure:'m',evidence:[],dependencies:[]}]}));
+const r=kpi.calculateKPI({id:'rev',name:'Revenue',current:120,previous:100,unit:'currency',status:'available',target:130,evidence:[{source:'sales',period:'2026-08',value:120}]});
+assert.equal(r.changePct,20); assert.equal(r.targetGap,-10);
+const unavailable=kpi.calculateKPI({id:'cogs',name:'COGS',current:null,previous:100,unit:'currency',status:'unavailable',evidence:[]}); assert.equal(unavailable.changePct,null);
+const s=sop.buildSOP({id:'s1',name:'Monthly Close',purpose:'Close books',trigger:'Month end',active:true,steps:[{id:'1',order:1,title:'Collect',instruction:'Collect source files',owner:'finance',status:'pending',requiredEvidence:['bank'],evidence:[],control:'Evidence checklist'}]});
+assert.equal(sop.nextSOPStep(s).id,'1');
+console.log('PASS action-plan-kpi-sop');

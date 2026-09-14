@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { validateCanonicalSale, detectDuplicateRecordIds } from '../.core-test-dist/canonical.js';
+import { analyzePOSHealth } from '../.core-test-dist/posHealth.js';
+import { calculateInventoryVariance } from '../.core-test-dist/inventoryIntelligence.js';
+import { buildBusinessHealth } from '../.core-test-dist/businessHealth.js';
+import { buildAlerts } from '../.core-test-dist/alerts.js';
+const source={source:'fixture',provider:'csv',recordId:'s1',importedAt:'2026-09-14T00:00:00Z',normalizedAt:'2026-09-14T00:01:00Z'};
+const good={id:'s1',organizationId:'o1',productName:'Kopi',qty:2,unitPrice:10000,grossAmount:20000,discountAmount:0,netAmount:20000,paymentAmount:20000,currency:'IDR',soldAt:'2026-09-13T10:00:00Z',status:'completed',source};
+assert.equal(validateCanonicalSale(good).valid,true);
+assert.equal(validateCanonicalSale({...good,netAmount:19000}).valid,false);
+assert.equal(detectDuplicateRecordIds([{recordId:'a'},{recordId:'a'},{recordId:'b'}]).length,1);
+const prev=[{id:'p1',organizationId:'o1',type:'sale',amount:100,occurredAt:'2026-08-01T00:00:00Z'},{id:'p2',organizationId:'o1',type:'sale',amount:100,occurredAt:'2026-08-01T00:00:00Z'}];
+const current=[...Array(10)].map((_,i)=>({id:'s'+i,organizationId:'o1',type:'sale',amount:100,occurredAt:'2026-09-01T00:00:00Z'})); current.push({id:'v1',organizationId:'o1',type:'void',amount:500,occurredAt:'2026-09-01T00:00:00Z',linkedSaleId:'s0'}); current.push({id:'pay1',organizationId:'o1',type:'payment',amount:500,occurredAt:'2026-09-01T00:00:01Z',linkedSaleId:'s0'});
+const pos=analyzePOSHealth(current,prev); assert.ok(pos.anomalies.length>=2); assert.ok(pos.anomalies.some(a=>a.code==='SUSPICIOUS_TRANSACTION_SEQUENCE'));
+const inv=calculateInventoryVariance([{id:'m1',itemId:'ayam',type:'sale_consumption',qty:117,unitCost:10000,occurredAt:'2026-09-01T00:00:00Z'}],[{productId:'p',itemId:'ayam',qtyPerSale:1}],[{productId:'p',qty:100,id:'s'}]);
+assert.equal(inv[0].varianceQty,17); assert.equal(inv[0].status,'WATCH');
+const finance={period:'2026-09',revenue:1000000,cogs:300000,grossProfit:700000,labor:200000,opex:100000,operatingProfit:400000,grossMarginPct:70,cogsPct:30,laborPct:20,opexPct:10,operatingMarginPct:40,recordCount:4,evidenceCount:4,missingMetrics:[]};
+const health=buildBusinessHealth({finance,pos,inventory:inv,evidence:[{id:'f',metric:'finance',status:'available',value:400000,period:'2026-09',source:'Supabase'}]}); assert.ok(health.score!==null); assert.ok(health.score>=0&&health.score<=100);
+assert.ok(buildAlerts(pos.anomalies,inv).length>=1);
+console.log('business health platform: PASS');
+
+const { mapTabularRows, summarizeCanonicalImport } = await import('../.core-test-dist/canonicalImport.js');
+const canonicalRows = mapTabularRows(['Transaction ID','Product Name','Qty','Unit Price','Discount','Total','Date','Status'], [['TX-1','Kopi',2,'25000','5000','45000','2026-08-01T10:00:00Z','completed'],['TX-1','Kopi',1,'25000','0','25000','2026-08-01T11:00:00Z','completed'],['TX-2','Teh',1,'10000','0','10000','2026-08-01T12:00:00Z','completed']], 'sales.csv', undefined, new Date('2026-09-01T00:00:00Z'), 'hash123');
+const canonicalSummary = summarizeCanonicalImport(canonicalRows);
+assert(canonicalSummary.total===3 && canonicalSummary.valid===2 && canonicalSummary.duplicate===1, 'canonical row duplicate detection');
+assert(canonicalRows[2].sourceRecordId==='TX-2', 'canonical source record id');
+console.log('canonical import: PASS');

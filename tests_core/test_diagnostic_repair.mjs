@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { buildRepairPlan } from '../dist/core/diagnosticRepair.js';
+const base={id:'x',severity:'medium',category:'performance',title:'Network calls without visible cancellation',cause:'fetch without abort',impact:'slow',solution:'add abort',evidence:[{file:'netlify/functions/acq-overpass.js',line:10,reason:'test'}],confidence:.9,status:'suspected'};
+const plan=buildRepairPlan(base);
+assert.equal(plan.safety,'safe');
+assert.equal(plan.canApplyAutomatically,false);
+assert.ok(plan.steps.some(s=>s.action==='patch'));
+const missing=buildRepairPlan({...base,id:'y',category:'missing_dependency',title:'Dependency missing'});
+assert.equal(missing.safety,'blocked');
+assert.equal(missing.canApplyAutomatically,false);
+console.log('Diagnostic repair contract: PASS');

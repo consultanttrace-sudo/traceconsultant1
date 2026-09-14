@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": [],
+    "outDir": ".core-test-dist",
+    "rootDir": "./src/core"
+  },
+  "files": [
+    "src/core/evidence.ts",
+    "src/core/intelligence.ts",
+    "src/core/finance.ts",
+    "src/core/canonical.ts",
+    "src/core/canonicalImport.ts",
+    "src/core/dataIntake.ts",
+    "src/core/posHealth.ts",
+    "src/core/inventoryIntelligence.ts",
+    "src/core/businessHealth.ts",
+    "src/core/alerts.ts",
+    "src/core/accounting.ts",
+    "src/core/chartOfAccounts.ts",
+    "src/core/balanceSheet.ts",
+    "src/core/cashFlowStatement.ts",
+    "src/core/accountsReceivable.ts",
+    "src/core/accountsPayable.ts",
+    "src/core/fixedAssets.ts",
+    "src/core/taxCalculator.ts",
+    "src/core/periodClose.ts",
+    "src/core/accountSubTypeInference.ts"
+  ]
+}

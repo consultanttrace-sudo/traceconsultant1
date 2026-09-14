@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const p=fs.readFileSync(new URL('../netlify/functions/acq-social-enrich.js',import.meta.url),'utf8');
+assert.match(p,/SOCIAL_TIMEOUT_MS/);
+assert.match(p,/SOCIAL_ENRICH_GLOBAL_DEADLINE_MS/);
+assert.match(p,/SOCIAL_ENRICH_CONCURRENCY/);
+assert.match(p,/new Array\(websites\.length\)/);
+assert.match(p,/Promise\.all/);
+assert.match(p,/AbortController/);
+assert.match(p,/TIMEOUT_OR_GLOBAL_DEADLINE/);
+assert.match(p,/text\/html/);
+assert.match(p,/slice\(0,750000\)/);
+assert.match(p,/GLOBAL_DEADLINE_REACHED/);
+console.log('social enrichment hardening v47: PASS');

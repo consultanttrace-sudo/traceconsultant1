@@ -1,0 +1,18 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const api=fs.readFileSync('netlify/functions/trace-data.js','utf8');
+const main=fs.readFileSync('src/app/main.tsx','utf8');
+const mig=fs.readFileSync('supabase/migrations/026_internal_client_scope_hardening.sql','utf8');
+assert.match(api,/parseClientId/);
+assert.match(api,/CLIENT_SCOPED_RESOURCES/);
+assert.match(api,/client_id wajib/);
+assert.match(api,/trace_read_client_dataset/); assert.match(api,/trace_read_client_kv/);
+assert.match(main,/clientId\?\['finance'\]/);
+assert.match(main,/clientId\?\['products','sales'\]/);
+assert.match(main,/Pilih klien/);
+assert.doesNotMatch(main,/trace_collaboration_tasks'\)\.insert/);
+assert.match(main,/trace_create_collaboration_task/);
+assert.match(mig,/trace_create_collaboration_task/);
+assert.match(mig,/TRACE_TASK_CLIENT_REQUIRED/);
+assert.match(mig,/TRACE_TASK_OWNER_NOT_TEAM_MEMBER/);
+console.log('internal client scope static: PASS');

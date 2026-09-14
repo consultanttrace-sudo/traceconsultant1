@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const ui=fs.readFileSync('src/app/main.tsx','utf8');
+assert.match(ui,/Diagnostic belum selesai\./);
+assert.match(ui,/<details>/);
+assert.ok(!ui.includes('setError(`Diagnostic server returned'));
+const server=fs.readFileSync('netlify/functions/diagnostic-run.js','utf8');
+assert.match(server,/Promise\.allSettled/);
+assert.match(server,/status: 'suspected'/);
+console.log('Diagnostic silent-notification + resilient scan contract: PASS');
