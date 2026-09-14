@@ -111,8 +111,12 @@ async function installAcquisitionBridge(){
     saveLeads:(leads)=>writeTraceKv(ACQUISITION_KV_KEY,leads),
     saveDiscoveryJob:async(job)=>{
       const supabase=await requireReactSession();
+      const {data:userData,error:userError}=await supabase.auth.getUser();
+      if(userError) throw userError;
+      const userId=userData.user?.id;
+      if(!userId) throw new Error('Tidak bisa mendapatkan user id untuk menyimpan discovery job.');
       const {error}=await supabase.from('trace_jobs').insert({
-        id:job.job_id,job_type:'acquisition_discovery',status:'RUNNING',requested_by:(await supabase.auth.getUser()).data.user?.id,
+        id:job.job_id,job_type:'acquisition_discovery',status:'RUNNING',requested_by:userId,
         scope:{area:job.area||null,category:job.category||null,source:job.source||null},config:{},progress:{}
       });
       if(error) throw error;
@@ -161,7 +165,18 @@ async function loadTraceCollections(keys: readonly string[], resources: readonly
 function asArray(value:unknown): unknown[]{return Array.isArray(value)?value:[];}
 function useTraceCollections(keys:readonly string[] = TRACE_KEYS, resources:readonly TraceResource[] = [], clientId?: string): TraceCollectionState {
   const [state,setState]=useState<TraceCollectionState>({loading:true,error:'',data:{},unavailable:[]});
-  useEffect(()=>{let alive=true;setState(v=>({...v,loading:true,error:''}));loadTraceCollections(keys,resources,clientId).then(result=>{if(alive)setState({loading:false,error:'',...result});}).catch(error=>{if(alive)setState({loading:false,error:error instanceof Error?error.message:'Data TRACE tidak tersedia.',data:{},unavailable:[]});});return()=>{alive=false};},[keys.join('|'),resources.join('|'),clientId||'']);
+  useEffect(()=>{
+    let alive=true;
+    if(!keys.length && !resources.length){
+      // Nothing to fetch yet (e.g. client-scoped view before a client is chosen).
+      // Don't call the API — it correctly 400s on an empty request — just show an empty, non-error state.
+      setState({loading:false,error:'',data:{},unavailable:[]});
+      return;
+    }
+    setState(v=>({...v,loading:true,error:''}));
+    loadTraceCollections(keys,resources,clientId).then(result=>{if(alive)setState({loading:false,error:'',...result});}).catch(error=>{if(alive)setState({loading:false,error:error instanceof Error?error.message:'Data TRACE tidak tersedia.',data:{},unavailable:[]});});
+    return()=>{alive=false};
+  },[keys.join('|'),resources.join('|'),clientId||'']);
   return state;
 }
 
@@ -734,7 +749,7 @@ function SettingsCenter(){
   const runSecurityScan=()=>{const files=(window as any).__traceSecurityFiles||[];setSecurityFindings(analyzeSecurity(files,[]));};
   const runEvolution=()=>{setEvolutionRecommendations(buildEvolutionRecommendations((window as any).__traceUsageSignals||[]));};
   const getToken=async()=>{
-    const supa=(window as any).supabase;
+    const supa=getReactSupabase();
     if(!supa?.auth?.getSession) return null;
     const session=await supa.auth.getSession();
     return session?.data?.session?.access_token ?? null;

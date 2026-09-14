@@ -1733,13 +1733,37 @@ async function runDiscovery(){
   discoveryStopRequested = false;
   discoveryAbortController = new AbortController();
   discoveryJob = {job_id:jobUid(),status:'running',started_at:new Date().toISOString(),area:areaKey,category:categoryKey,source:sourceKey,sequence_no:0};
+  // Disable + show busy state immediately (synchronously), before any await below.
+  // Previously the button stayed looking idle/clickable during getTraceBridge()/
+  // saveDiscoveryJob() (each a network round-trip), which invited an impatient
+  // second click — and that second click always hit the guard above and looked
+  // like Discovery had failed, even though the first click was still starting up.
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Menyiapkan discovery...';
   const discoveryBridge=await getTraceBridge(800);
-  if(discoveryBridge?.saveDiscoveryJob) await discoveryBridge.saveDiscoveryJob(discoveryJob);
+  if(discoveryBridge?.saveDiscoveryJob){
+    try{
+      await discoveryBridge.saveDiscoveryJob(discoveryJob);
+    }catch(e){
+      // If this fails (e.g. RLS/team-membership/network), don't leave discoveryJob
+      // stuck at status 'running' forever — every later click would otherwise hit
+      // the "Discovery masih berjalan" guard above even though nothing is running.
+      console.error('saveDiscoveryJob failed', e);
+      discoveryJob = null;
+      discoveryAbortController = null;
+      discoveryStopRequested = false;
+      btn.disabled = false;
+      btn.innerHTML = '🔎 Temukan Calon Klien';
+      toast('Discovery gagal dimulai: ' + (e?.message || 'job tidak bisa disimpan ke Supabase.'));
+      return;
+    }
+  }
   if (stopBtn){ stopBtn.style.display='block'; stopBtn.onclick=()=>{ if(discoveryStopRequested)return; discoveryStopRequested=true; if(discoveryJob)discoveryJob.status='stopping'; discoveryAbortController?.abort(); stopBtn.disabled=true; stopBtn.textContent='Menghentikan...'; }; stopBtn.disabled=false; stopBtn.textContent='⏹ Stop Discovery'; }
 
   if (!provider){
     if(discoveryJob){discoveryJob.status='FAILED'; await discoveryBridge?.updateDiscoveryJob?.(discoveryJob.job_id,'FAILED',{}, {reason:'provider_unconfigured'});}
-    discoveryAbortController=null; discoveryStopRequested=false;
+    discoveryJob=null; discoveryAbortController=null; discoveryStopRequested=false;
+    btn.disabled = false; btn.innerHTML = '🔎 Temukan Calon Klien';
     toast('Sumber data ini belum dikonfigurasi');
     return;
   }
@@ -1747,7 +1771,8 @@ async function runDiscovery(){
     progressBlock.style.display='block';
     progressList.innerHTML='<div>› Mode file:// tidak dapat memanggil server discovery.</div><div>› Jalankan OPEN_TRACE_CONSULTANT.command untuk tes lokal, atau deploy ke Netlify.</div>';
     if(discoveryJob){discoveryJob.status='FAILED'; await discoveryBridge?.updateDiscoveryJob?.(discoveryJob.job_id,'FAILED',{}, {reason:'file_protocol'});}
-    discoveryAbortController=null; discoveryStopRequested=false;
+    discoveryJob=null; discoveryAbortController=null; discoveryStopRequested=false;
+    btn.disabled = false; btn.innerHTML = '🔎 Temukan Calon Klien';
     toast('Jalankan OPEN_TRACE_CONSULTANT.command sebelum discovery lokal.');
     return;
   }
