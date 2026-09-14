@@ -22,7 +22,7 @@ import { analyzeSecurity, securityStatus, type SecurityFinding } from '../core/a
 import { buildEvolutionRecommendations, type EvolutionRecommendation } from '../core/aiEvolution';
 import { aggregateDelimitedRows, applyManualCompletion, buildIntakeResult, calculateAvailableFinance, detectSourceType, parseAmount, type IntakeResult } from '../core/dataIntake';
 import { parseWorkbook, parseDocx, parsePdf, parseText, parseImage } from '../core/fileIntakeAdapters';
-import { buildLeaderCommandCenter } from '../core/leaderCommandCenter';
+import { buildLeaderCommandCenter, type HealthStatus, type LeaderClientSnapshot } from '../core/leaderCommandCenter';
 import { diagnoseInternalSystem } from '../core/internalDiagnosis';
 import { fetchWithTimeout } from '../core/browserNetwork';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -165,6 +165,50 @@ function useTraceCollections(keys:readonly string[] = TRACE_KEYS, resources:read
   return state;
 }
 
+type LeaderSnapshotsState = { loading:boolean; error:string; snapshots:LeaderClientSnapshot[] };
+/** Real per-client health rollup for Command Center / Internal Diagnosis — loops production
+ *  finance/pos/inventory/task data per client (evidence-first, same rules as BusinessHealthView). */
+function useLeaderSnapshots(clients:Record<string,unknown>[]): LeaderSnapshotsState {
+  const [state,setState]=useState<LeaderSnapshotsState>({loading:true,error:'',snapshots:[]});
+  const ids=clients.map(c=>String(c.id)).join('|');
+  useEffect(()=>{
+    let alive=true;
+    if(!clients.length){ setState({loading:false,error:'',snapshots:[]}); return; }
+    setState(v=>({...v,loading:true,error:''}));
+    (async()=>{
+      const snapshots:LeaderClientSnapshot[]=[];
+      for(const c of clients){
+        const clientId=String(c.id);
+        const clientName=String(c.name??c.business_name??clientId);
+        try{
+          const {data}=await loadTraceCollections([],['finance','pos_events','inventory_movements','inventory_items','inventory_recipes','tasks'],clientId);
+          const financeRecords:FinanceRecord[]=asArray(data.finance).filter((r):r is Record<string,unknown>=>!!r&&typeof r==='object').map((r:any)=>({id:String(r.id),period:String(r.period),amount:Number(r.amount),category:r.category as FinanceRecord['category'],outletId:r.outlet_id?String(r.outlet_id):undefined,evidence:r.evidence_source?{id:String(r.id),source:r.evidence_source as FinanceEvidence['source']}:undefined}));
+          const periods=[...new Set(financeRecords.map(r=>r.period))].sort();
+          const period=periods.at(-1)??'';
+          const summary=summarizeFinance(financeRecords,period);
+          const events:POSEvent[]=asArray(data.pos_events).filter((e):e is Record<string,unknown>=>!!e).map((e:any)=>({id:String(e.id),organizationId:String(e.organization_id),outletId:e.outlet_id?String(e.outlet_id):undefined,employeeId:e.employee_id?String(e.employee_id):undefined,cashierId:e.cashier_id?String(e.cashier_id):undefined,productId:e.product_id?String(e.product_id):undefined,type:e.event_type as POSEvent['type'],amount:Number(e.amount),occurredAt:String(e.occurred_at),sourceRecordId:e.source_record_id?String(e.source_record_id):undefined}));
+          const pos=analyzePOSHealth(events);
+          const movements:InventoryMovement[]=asArray(data.inventory_movements).filter((e):e is Record<string,unknown>=>!!e).map((e:any)=>({id:String(e.id),itemId:String(e.item_id),outletId:e.outlet_id?String(e.outlet_id):undefined,type:e.movement_type as InventoryMovement['type'],qty:Number(e.qty),unitCost:e.unit_cost===null||e.unit_cost===undefined?null:Number(e.unit_cost),occurredAt:String(e.occurred_at)}));
+          const recipes:RecipeComponent[]=asArray(data.inventory_recipes).map((e:any)=>({productId:String(e.product_id),itemId:String(e.item_id),qtyPerSale:Number(e.qty_per_sale)}));
+          const inventory=calculateInventoryVariance(movements,recipes,[]);
+          const evidence=[{id:'finance',metric:'Financial data',status:summary.recordCount?'available':'unavailable',value:summary.operatingProfit,period,source:'Supabase trace_finance_records'} as const,{id:'pos',metric:'POS events',status:events.length?'available':'unavailable',value:events.length,source:'Supabase trace_pos_events'} as const,{id:'inventory',metric:'Inventory movements',status:movements.length?'available':'unavailable',value:movements.length,source:'Supabase trace_inventory_movements'} as const];
+          const health=buildBusinessHealth({finance:summary,pos:events.length?pos:null,inventory:inventory.length?inventory:undefined,evidence:[...evidence]});
+          const tasks=asArray(data.tasks).filter((t):t is Record<string,unknown>=>!!t&&typeof t==='object');
+          const openActions=tasks.filter(t=>t.status==='open'||t.status==='in_progress').length;
+          const blockedActions=tasks.filter(t=>t.status==='blocked').length;
+          const healthStatus:HealthStatus=health.score===null?'unknown':health.score>=80?'healthy':health.score>=60?'attention':'critical';
+          snapshots.push({clientId,clientName,health:healthStatus,healthReason:health.score===null?'Evidence belum cukup untuk menghitung score.':`Score ${health.score}/100 dari evidence yang tersedia (confidence ${health.confidencePct??0}%).`,kpis:[],openActions,blockedActions,dataCoveragePct:health.confidencePct});
+        }catch(err){
+          snapshots.push({clientId,clientName,health:'unknown',healthReason:err instanceof Error?err.message:'Data client tidak tersedia.',kpis:[],openActions:0,blockedActions:0,dataCoveragePct:null});
+        }
+      }
+      if(alive) setState({loading:false,error:'',snapshots});
+    })();
+    return ()=>{alive=false};
+  },[ids]);
+  return state;
+}
+
 class TraceErrorBoundary extends Component<{children:ReactNode},{hasError:boolean;message:string}>{
   state={hasError:false,message:''};
   static getDerivedStateFromError(error:Error){return {hasError:true,message:error.message||'Unexpected application error.'};}
@@ -177,8 +221,59 @@ class TraceErrorBoundary extends Component<{children:ReactNode},{hasError:boolea
   }
 }
 
+type SessionState = { checked:boolean; session:import('@supabase/supabase-js').Session|null };
+function useSupabaseSession(): SessionState {
+  const [state,setState]=useState<SessionState>({checked:false,session:null});
+  useEffect(()=>{
+    const supabase=getReactSupabase();
+    if(!supabase){ setState({checked:true,session:null}); return; }
+    let alive=true;
+    supabase.auth.getSession().then(({data})=>{ if(alive) setState({checked:true,session:data.session??null}); });
+    const {data:sub}=supabase.auth.onAuthStateChange((_event,session)=>{ if(alive) setState({checked:true,session:session??null}); });
+    return ()=>{ alive=false; sub.subscription.unsubscribe(); };
+  },[]);
+  return state;
+}
+
+function LoginGate({onSignedIn}:{onSignedIn:()=>void}){
+  const [email,setEmail]=useState(''); const [password,setPassword]=useState('');
+  const [mode,setMode]=useState<'signin'|'signup'>('signin');
+  const [busy,setBusy]=useState(false); const [message,setMessage]=useState('');
+  const supabase=getReactSupabase();
+  const submit=async(e:React.FormEvent)=>{
+    e.preventDefault();
+    if(!supabase){ setMessage('Supabase belum dikonfigurasi (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY kosong).'); return; }
+    if(!email.trim()||!password){ setMessage('Isi email dan password.'); return; }
+    setBusy(true); setMessage('');
+    try{
+      if(mode==='signin'){
+        const {error}=await supabase.auth.signInWithPassword({email:email.trim(),password});
+        if(error) throw error;
+        onSignedIn();
+      }else{
+        const {error}=await supabase.auth.signUp({email:email.trim(),password});
+        if(error) throw error;
+        setMessage('Akun dibuat. Cek email untuk verifikasi (jika diaktifkan), lalu login.');
+        setMode('signin');
+      }
+    }catch(err){ setMessage(err instanceof Error?err.message:'Login gagal.'); }
+    finally{ setBusy(false); }
+  };
+  return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0d0d0f',padding:20}}>
+    <form onSubmit={submit} style={{width:'100%',maxWidth:380,background:'#fff',borderRadius:16,padding:28,display:'grid',gap:14}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}><div style={{width:34,height:34,borderRadius:9,background:'#171717',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800}}>T</div><div><strong>TRACE</strong><div className="trace-muted" style={{fontSize:11}}>Consultant OS</div></div></div>
+      <label style={{display:'grid',gap:5,fontSize:13}}>Email<input type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} style={inputStyle} required/></label>
+      <label style={{display:'grid',gap:5,fontSize:13}}>Password<input type="password" autoComplete={mode==='signin'?'current-password':'new-password'} value={password} onChange={e=>setPassword(e.target.value)} style={inputStyle} required minLength={6}/></label>
+      {message&&<div className="trace-muted" style={{fontSize:12,color:'#b42318'}}>{message}</div>}
+      <button type="submit" disabled={busy} className="trace-button" style={{justifySelf:'stretch'}}>{busy?'Memproses…':mode==='signin'?'Masuk':'Daftar'}</button>
+      <button type="button" onClick={()=>{setMode(m=>m==='signin'?'signup':'signin');setMessage('')}} style={{all:'unset',cursor:'pointer',fontSize:12,textAlign:'center',color:'#555'}}>{mode==='signin'?'Belum punya akun? Daftar':'Sudah punya akun? Masuk'}</button>
+    </form>
+  </div>;
+}
+
 function App(){
   useEffect(()=>{void installAcquisitionBridge().catch(()=>{ /* Acquisition remains truthful until a valid authenticated Supabase session exists. */ }); return()=>{ if(window.TRACE_ACQUISITION_BRIDGE) delete window.TRACE_ACQUISITION_BRIDGE; };},[]);
+  const {checked,session}=useSupabaseSession();
   const initialView=(()=>{const v=new URLSearchParams(location.search).get('view');return ['overview','health','command','recovery','team','governance','clients','acquisition','business','finance','accounting','sales','intake','diagnosis','internal','analytics','settings'].includes(v||'')?String(v):'overview';})();
   const [active,setActive]=useState(initialView);
   const [commandOpen,setCommandOpen]=useState(false);
@@ -188,8 +283,11 @@ function App(){
   const choose=(id:string)=>{setActive(id);setCommandOpen(false);setCommandQuery('');history.replaceState(null,'',`?view=${encodeURIComponent(id)}`)};
   const filtered=nav.filter(([,label])=>label.toLowerCase().includes(commandQuery.toLowerCase()));
   const mobile=nav.filter(([id])=>['overview','health','clients','finance','settings'].includes(id));
+  if(!checked) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#888',fontSize:13}}>Memuat sesi…</div>;
+  if(!session) return <LoginGate onSignedIn={()=>{}}/>;
+  const signOut=async()=>{ const supabase=getReactSupabase(); if(supabase) await supabase.auth.signOut(); };
   return <TraceErrorBoundary><div className="trace-shell">
-    <aside className="trace-sidebar"><div className="trace-brand"><div className="trace-brand-mark">T</div><div><div className="trace-brand-name">TRACE</div><div className="trace-muted" style={{fontSize:12,marginTop:2}}>Consultant OS</div></div></div><Tooltip.Provider delayDuration={350}><nav className="trace-nav">{nav.map(([id,label,Icon])=><Tooltip.Root key={id}><Tooltip.Trigger asChild><button data-active={active===id} onClick={()=>choose(id)}><Icon size={16} style={{verticalAlign:'-3px',marginRight:9}}/>{label}</button></Tooltip.Trigger><Tooltip.Portal><Tooltip.Content className="trace-tooltip" side="right" sideOffset={8}>{label}<Tooltip.Arrow className="trace-tooltip-arrow"/></Tooltip.Content></Tooltip.Portal></Tooltip.Root>)}</nav></Tooltip.Provider></aside>
+    <aside className="trace-sidebar"><div className="trace-brand"><div className="trace-brand-mark">T</div><div><div className="trace-brand-name">TRACE</div><div className="trace-muted" style={{fontSize:12,marginTop:2}}>Consultant OS</div></div></div><Tooltip.Provider delayDuration={350}><nav className="trace-nav">{nav.map(([id,label,Icon])=><Tooltip.Root key={id}><Tooltip.Trigger asChild><button data-active={active===id} onClick={()=>choose(id)}><Icon size={16} style={{verticalAlign:'-3px',marginRight:9}}/>{label}</button></Tooltip.Trigger><Tooltip.Portal><Tooltip.Content className="trace-tooltip" side="right" sideOffset={8}>{label}<Tooltip.Arrow className="trace-tooltip-arrow"/></Tooltip.Content></Tooltip.Portal></Tooltip.Root>)}</nav></Tooltip.Provider><button onClick={signOut} style={{all:'unset',cursor:'pointer',fontSize:12,color:'#888',padding:'10px 14px'}}>Keluar ({session.user.email})</button></aside>
     <main className="trace-main"><header className="trace-topbar"><div><strong>{title}</strong><div className="trace-muted" style={{fontSize:12}}>Business Intelligence · Consulting Workflow</div></div><button className="trace-command" aria-label="Command palette" title="Command palette" onClick={()=>{setCommandOpen(true);setCommandQuery('')}}><Command size={16}/><span className="trace-muted" style={{fontSize:12}}>Command</span></button></header>
     <section className="trace-content"><AnimatePresence mode="wait">
       <motion.div key={active} initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-6}} transition={{duration:.18,ease:[.2,.7,.3,1]}}>
@@ -346,12 +444,29 @@ function OverviewLive(){
   </div><div className="trace-kpis" style={{marginTop:14}}>{cards.map(([name,key])=><div className="trace-card" key={key}><div className="trace-muted" style={{fontSize:12}}>{name}</div><div style={{fontSize:28,fontWeight:700,marginTop:8}}>{live.loading?'…':live.error?'—':asArray(live.data[key]).length}</div><div className="trace-muted" style={{fontSize:12,marginTop:5}}>{live.error||'Dibaca dari sumber production dengan session pengguna.'}</div></div>)}</div></>;
 }
 
+function healthTone(h:HealthStatus){return h==='critical'?'danger':h==='blocked'?'danger':h==='attention'?'warning':h==='healthy'?'positive':'neutral'}
 function LeaderCommandCenterView(){
   const live=useTraceCollections(['trace-clients','trace-companies','trace-brands','trace-outlets']);
-  const clients=asArray(live.data['trace-clients']);
-  const center=buildLeaderCommandCenter([]);
+  const clients=asArray(live.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
+  const snapLive=useLeaderSnapshots(clients);
+  const center=buildLeaderCommandCenter(snapLive.snapshots);
   const label=(key:string)=>live.loading?'Memuat…':live.error?'—':String(asArray(live.data[key]).length);
-  return <div style={{display:'grid',gap:16}}><div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>LEADER · COMMAND CENTER</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Satu layar untuk melihat kesehatan seluruh bisnis.</h1><div className="trace-muted">Status hanya berubah berdasarkan data yang tersedia. Tidak ada angka dummy yang dipakai sebagai kondisi bisnis.</div></div><div className="trace-kpis">{[['Total Client',label('trace-clients')],['Companies',label('trace-companies')],['Brands',label('trace-brands')],['Outlets',label('trace-outlets')]].map(([k,v])=><div className="trace-card" key={String(k)}><div className="trace-muted" style={{fontSize:12}}>{k}</div><div style={{fontSize:30,fontWeight:800,marginTop:6}}>{v}</div></div>)}</div><div className="trace-card"><strong>Production data status</strong><div className="trace-muted" style={{marginTop:7}}>{live.error||(!live.loading&&live.unavailable.length?`Sebagian sumber tidak tersedia: ${live.unavailable.join(', ')}.`:'Data dasar berhasil dibaca dari Supabase dengan session pengguna. Health/priority belum dihitung karena finance, diagnosis, dan action evidence belum dipetakan ke snapshot client.')}</div></div></div>
+  return <div style={{display:'grid',gap:16}}>
+    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>LEADER · COMMAND CENTER</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Satu layar untuk melihat kesehatan seluruh bisnis.</h1><div className="trace-muted">Status hanya berubah berdasarkan data yang tersedia. Tidak ada angka dummy yang dipakai sebagai kondisi bisnis.</div></div>
+    <div className="trace-kpis">{[['Total Client',label('trace-clients')],['Companies',label('trace-companies')],['Brands',label('trace-brands')],['Outlets',label('trace-outlets')]].map(([k,v])=><div className="trace-card" key={String(k)}><div className="trace-muted" style={{fontSize:12}}>{k}</div><div style={{fontSize:30,fontWeight:800,marginTop:6}}>{v}</div></div>)}</div>
+    {snapLive.loading?<div className="trace-card trace-muted">Menghitung health untuk {clients.length} klien…</div>:<>
+      <div className="trace-kpis">
+        <div className="trace-card"><div className="trace-muted">Healthy</div><div style={{fontSize:28,fontWeight:800,marginTop:6}}>{center.counts.healthy}</div></div>
+        <div className="trace-card"><div className="trace-muted">Attention</div><div style={{fontSize:28,fontWeight:800,marginTop:6}}>{center.counts.attention}</div></div>
+        <div className="trace-card"><div className="trace-muted">Critical</div><div style={{fontSize:28,fontWeight:800,marginTop:6}}>{center.counts.critical}</div></div>
+        <div className="trace-card"><div className="trace-muted">Unknown / no evidence</div><div style={{fontSize:28,fontWeight:800,marginTop:6}}>{center.counts.unknown}</div></div>
+      </div>
+      <div className="trace-card"><strong>Prioritas klien</strong><div className="trace-muted" style={{fontSize:12,marginTop:4}}>Diurutkan dari health paling kritis; coverage rata-rata evidence {center.dataQuality.averageCoveragePct===null?'—':`${center.dataQuality.averageCoveragePct}%`}.</div>
+        <div style={{display:'grid',gap:8,marginTop:12}}>{center.priorityClients.map(c=><div key={c.clientId} style={{padding:12,border:'1px solid rgba(23,23,23,.08)',borderRadius:11}}><div style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center'}}><strong style={{fontSize:13}}>{c.clientName}</strong><span className="trace-badge" data-tone={healthTone(c.health)}>{c.health.toUpperCase()}</span></div><div className="trace-muted" style={{fontSize:11,marginTop:5}}>{c.healthReason}</div><div className="trace-muted" style={{fontSize:11,marginTop:3}}>Open actions {c.openActions} · Blocked {c.blockedActions} · Coverage {c.dataCoveragePct===null?'—':`${c.dataCoveragePct}%`}</div></div>)}{center.priorityClients.length===0&&<div className="trace-muted">Belum ada klien.</div>}</div>
+      </div>
+    </>}
+    <div className="trace-card"><strong>Production data status</strong><div className="trace-muted" style={{marginTop:7}}>{live.error||(!live.loading&&live.unavailable.length?`Sebagian sumber tidak tersedia: ${live.unavailable.join(', ')}.`:'Health dihitung dari finance, POS, dan inventory production per klien — sama seperti Business Health, dijalankan untuk setiap klien.')}</div></div>
+  </div>
 }
 function TeamView(){
   const [clientId,setClientId]=useState('');
@@ -394,9 +509,9 @@ function AnalyticsView(){
  *  explicitly converted into a client; converted client data then follows the
  *  normal TRACE client-scope boundary. */
 function AcquisitionView(){
-  return <div style={{display:'grid',gap:16,height:'calc(100vh - 140px)'}}>
-    <div className="trace-card" style={{padding:'14px 20px'}}><div className="trace-muted" style={{fontSize:12}}>ACQUISITION · INTERNAL</div><div className="trace-muted" style={{fontSize:12,marginTop:4}}>Discovery dan pipeline berjalan sebagai modul internal TRACE. Lead tersimpan melalui authenticated persistence bridge; setelah dikonversi menjadi client, data operasional mengikuti client scope TRACE.</div></div>
-    <iframe title="TRACE Acquisition OS" src="/acquisition/index.html?embedded=1" style={{flex:1,width:'100%',border:'1px solid rgba(23,23,23,.08)',borderRadius:14,background:'#f4f5f9'}}/>
+  return <div style={{display:'flex',flexDirection:'column',gap:16,height:'calc(100vh - 140px)'}}>
+    <div className="trace-card" style={{padding:'14px 20px',flex:'0 0 auto'}}><div className="trace-muted" style={{fontSize:12}}>ACQUISITION · INTERNAL</div><div className="trace-muted" style={{fontSize:12,marginTop:4}}>Discovery dan pipeline berjalan sebagai modul internal TRACE. Lead tersimpan melalui authenticated persistence bridge; setelah dikonversi menjadi client, data operasional mengikuti client scope TRACE.</div></div>
+    <iframe title="TRACE Acquisition OS" src="/acquisition/index.html?embedded=1" style={{flex:'1 1 auto',minHeight:0,width:'100%',border:'1px solid rgba(23,23,23,.08)',borderRadius:14,background:'#f4f5f9'}}/>
   </div>
 }
 
@@ -405,8 +520,35 @@ function ClientsView(){
   const clients=asArray(live.data['trace-clients']).filter((x):x is Record<string,unknown>=>typeof x==='object'&&x!==null);
   const [query,setQuery]=useState('');
   const filtered=clients.filter(c=>JSON.stringify(c).toLowerCase().includes(query.toLowerCase()));
+  const [formOpen,setFormOpen]=useState(false);
+  const [name,setName]=useState(''); const [category,setCategory]=useState(''); const [area,setArea]=useState(''); const [contact,setContact]=useState('');
+  const [source,setSource]=useState<'manual'|'acquisition'>('manual');
+  const [saving,setSaving]=useState(false); const [formMessage,setFormMessage]=useState('');
+  const addClient=async(e:React.FormEvent)=>{
+    e.preventDefault();
+    if(!name.trim()||saving)return;
+    setSaving(true); setFormMessage('');
+    try{
+      const existing=await readTraceKvArray('trace_os::trace-clients');
+      const normalized=name.trim().toLowerCase();
+      if(existing.some(c=>String((c as any).name||(c as any).business_name||'').trim().toLowerCase()===normalized)) throw new Error('Klien dengan nama ini sudah ada.');
+      const newClient={id:`client_${crypto.randomUUID()}`,name:name.trim(),category:category.trim()||undefined,area:area.trim()||undefined,contact:contact.trim()||undefined,createdAt:Date.now(),source};
+      await writeTraceKv('trace_os::trace-clients',[...existing,newClient]);
+      setName('');setCategory('');setArea('');setContact('');setSource('manual');setFormOpen(false);setFormMessage('Klien tersimpan. Refresh untuk melihat di daftar.');
+      location.reload();
+    }catch(err){ setFormMessage(err instanceof Error?err.message:'Klien gagal disimpan.'); }
+    finally{ setSaving(false); }
+  };
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>KLIEN</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Daftar klien dari sumber production.</h1><div className="trace-muted">Data dibaca read-only dari Supabase dengan session pengguna.</div></div>
+    <div className="trace-card" style={{padding:26,display:'flex',justifyContent:'space-between',alignItems:'flex-end',gap:16,flexWrap:'wrap'}}><div><div className="trace-muted" style={{fontSize:12}}>KLIEN</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Daftar klien dari sumber production.</h1><div className="trace-muted">Data dibaca read-only dari Supabase dengan session pengguna.</div></div><button className="trace-button" onClick={()=>setFormOpen(v=>!v)}>{formOpen?'Batal':'+ Tambah Klien'}</button></div>
+    {formOpen&&<form onSubmit={addClient} className="trace-card" style={{display:'grid',gap:10,gridTemplateColumns:'1fr 1fr'}}>
+      <label style={{gridColumn:'1 / -1',fontSize:13}}>Nama klien<input required value={name} onChange={e=>setName(e.target.value)} style={inputStyle} placeholder="Nama bisnis"/></label>
+      <label style={{fontSize:13}}>Kategori<input value={category} onChange={e=>setCategory(e.target.value)} style={inputStyle} placeholder="F&B, Retail, dst"/></label>
+      <label style={{fontSize:13}}>Area<input value={area} onChange={e=>setArea(e.target.value)} style={inputStyle} placeholder="Kota / wilayah"/></label>
+      <label style={{fontSize:13}}>Kontak<input value={contact} onChange={e=>setContact(e.target.value)} style={inputStyle} placeholder="No. HP / email"/></label>
+      <label style={{fontSize:13}}>Sumber<select value={source} onChange={e=>setSource(e.target.value as typeof source)} style={inputStyle}><option value="manual">Manual</option><option value="acquisition">Acquisition</option></select></label>
+      <div style={{gridColumn:'1 / -1',display:'flex',gap:10,alignItems:'center'}}><button type="submit" className="trace-button" disabled={saving||!name.trim()}>{saving?'Menyimpan…':'Simpan klien'}</button>{formMessage&&<span className="trace-muted" style={{fontSize:12}}>{formMessage}</span>}</div>
+    </form>}
     <div className="trace-card"><input placeholder="Cari klien…" value={query} onChange={e=>setQuery(e.target.value)} style={{maxWidth:320}}/>
       {live.loading?<div className="trace-muted" style={{marginTop:12}}>Memuat…</div>:live.error?<div className="trace-muted" style={{marginTop:12}}>{live.error}</div>:filtered.length===0?<div className="trace-muted" style={{marginTop:12}}>Tidak ada klien yang cocok.</div>:<div style={{marginTop:14,display:'grid',gap:8}}>{filtered.map((c,i)=><Dialog.Root key={String(c.id??i)}><Dialog.Trigger asChild><button style={{all:'unset',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 14px',border:'1px solid rgba(23,23,23,.08)',borderRadius:11,width:'100%'}}><div><strong style={{fontSize:13}}>{String(c.name??c.business_name??'Untitled client')}</strong><div className="trace-muted" style={{fontSize:11,marginTop:2}}>{String(c.status??c.stage??'—')}</div></div><ArrowRight size={15} className="trace-muted"/></button></Dialog.Trigger><Dialog.Portal><Dialog.Overlay className="trace-dialog-overlay"/><Dialog.Content className="trace-dialog-content"><Dialog.Close className="trace-dialog-close trace-icon-btn"><X size={16}/></Dialog.Close><Dialog.Title asChild><h2>{String(c.name??c.business_name??'Untitled client')}</h2></Dialog.Title><Dialog.Description asChild><div className="trace-muted" style={{fontSize:12,marginBottom:12}}>Field mentah sebagaimana tersimpan di production.</div></Dialog.Description><div style={{display:'grid',gap:7,fontSize:13}}>{Object.entries(c).map(([k,v])=><div key={k} style={{display:'flex',justifyContent:'space-between',gap:12,padding:'7px 0',borderTop:'1px solid rgba(23,23,23,.06)'}}><span className="trace-muted">{k}</span><span style={{textAlign:'right'}}>{v===null||v===undefined?'—':String(v)}</span></div>)}</div></Dialog.Content></Dialog.Portal></Dialog.Root>)}</div>}
     </div>
@@ -432,9 +574,13 @@ function BusinessTwinView(){
   return <div style={{display:'grid',gap:16}}><div className="trace-card trace-hero"><div className="trace-section-kicker">BUSINESS TWIN · OPERATIONS</div><h1>Kerjaan tim dan SOP dalam satu papan.</h1><p className="trace-muted">Scope klien wajib dipilih. Task tidak pernah dimuat lintas-klien pada papan kerja.</p><div className="trace-hero-pills"><span>CLIENT SCOPED</span><span>VERSION LOCK</span><span>AUDITED</span></div></div><div className="trace-card" style={{display:'grid',gap:10}}><label>Klien / Scope<select value={clientId} onChange={e=>setClientId(e.target.value)} style={inputStyle}><option value="">Pilih klien</option>{clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}</select></label><strong>Buat task baru</strong><div style={{display:'grid',gridTemplateColumns:'2fr auto auto',gap:8}}><input value={newTitle} onChange={e=>setNewTitle(e.target.value)} placeholder="Judul pekerjaan" disabled={!clientId}/><select value={newPriority} onChange={e=>setNewPriority(e.target.value as typeof newPriority)} disabled={!clientId}><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select><button className="trace-button" disabled={creating||!clientId||!newTitle.trim()} onClick={createTask}>{creating?'Menyimpan…':'Tambah task'}</button></div></div>{error&&<div className="trace-alert">{error}</div>}{!clientId?<div className="trace-card trace-muted">Pilih klien untuk membuka papan pekerjaan.</div>:live.loading?<div className="trace-card trace-muted">Memuat task production…</div>:live.error?<div className="trace-card trace-alert">{live.error}</div>:<><div className="trace-kpis"><div className="trace-card"><div className="trace-muted">OPEN</div><div style={{fontSize:26,fontWeight:800,marginTop:6}}>{summary.open}</div></div><div className="trace-card"><div className="trace-muted">IN PROGRESS</div><div style={{fontSize:26,fontWeight:800,marginTop:6}}>{summary.inProgress}</div></div><div className="trace-card"><div className="trace-muted">BLOCKED</div><div style={{fontSize:26,fontWeight:800,marginTop:6}}>{summary.blocked}</div></div><div className="trace-card"><div className="trace-muted">DONE</div><div style={{fontSize:26,fontWeight:800,marginTop:6}}>{summary.done}</div></div></div><div className="trace-kanban">{columns.map(col=><div key={col} className="trace-kanban-col"><h4>{col.replace('_',' ')}</h4>{tasks.filter(t=>t.status===col).map(t=><div key={t.id} className="trace-kanban-card"><div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}><strong style={{fontSize:12.5}}>{t.title}</strong><DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="trace-icon-btn"><Settings size={13}/></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="trace-dropdown" sideOffset={6}>{columns.filter(c=>c!==t.status).map(c=><DropdownMenu.Item key={c} className="trace-dropdown-item" onSelect={()=>void move(t,c)}>Pindah ke {c.replace('_',' ')}</DropdownMenu.Item>)}</DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root></div><div className="trace-muted" style={{fontSize:11,marginTop:6}}>{t.owner} · {t.priority} · v{t.version}</div></div>)}{tasks.filter(t=>t.status===col).length===0&&<div className="trace-muted" style={{fontSize:11,padding:'6px 4px'}}>Belum ada task.</div>}</div>)}</div></>}</div>
 }
 function InternalDiagnosisView(){
-  const report=diagnoseInternalSystem({});
+  const clientsLive=useTraceCollections(['trace-clients']);
+  const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
+  const snapLive=useLeaderSnapshots(clients);
+  const center=snapLive.loading?undefined:buildLeaderCommandCenter(snapLive.snapshots);
+  const report=diagnoseInternalSystem({commandCenter:center});
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>TRACE · INTERNAL DIAGNOSIS</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Kesehatan sistem harus dibuktikan, bukan diasumsikan.</h1><div className="trace-muted">Finding dikategorikan berdasarkan evidence yang benar-benar tersedia. Status blocked tidak diperlakukan sebagai sehat.</div></div>
+    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>TRACE · INTERNAL DIAGNOSIS</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Kesehatan sistem harus dibuktikan, bukan diasumsikan.</h1><div className="trace-muted">Finding dikategorikan berdasarkan evidence yang benar-benar tersedia (Command Center per-klien). Status blocked tidak diperlakukan sebagai sehat. Diagnostic runtime/source-level (Security Guard, Evolution Advisor) masih butuh sensor terpisah — lihat Settings → AI Engineer.</div></div>
     <div className="trace-card"><strong>Current conclusion</strong><div style={{marginTop:8}}>{report.conclusion}</div>{report.limitations.map(x=><div className="trace-muted" key={x} style={{marginTop:8}}>{x}</div>)}</div>
     {report.findings.length===0 ? <div className="trace-card"><strong>Belum ada evidence internal yang diberikan.</strong><div className="trace-muted" style={{marginTop:7}}>Ini bukan PASS. Hubungkan telemetry, diagnostic snapshot, Command Center, dan workflow evidence untuk mendapatkan diagnosis nyata.</div></div> : report.findings.map(f=><div className="trace-card" key={f.id}><div style={{display:'flex',justifyContent:'space-between',gap:12}}><strong>{f.title}</strong><span className="trace-muted">{f.status} · {f.severity}</span></div><div style={{display:'grid',gap:7,marginTop:12,fontSize:13}}><div><b>Apa terjadi:</b> {f.whatHappened}</div><div><b>Evidence:</b> {f.evidence.join(' | ')}</div><div><b>Mengapa:</b> {f.why}</div><div><b>Dampak:</b> {f.impact}</div><div><b>Solusi:</b> {f.solution}</div><div><b>Pencegahan:</b> {f.prevention}</div></div></div>)}
   </div>
