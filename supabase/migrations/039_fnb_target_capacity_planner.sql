@@ -2,7 +2,7 @@
 create table if not exists public.trace_fnb_target_plans (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.trace_clients(id) on delete cascade,
-  outlet_id uuid null references public.trace_outlets(id) on delete set null,
+  outlet_id uuid null,
   plan_name text not null,
   period date not null,
   assumptions jsonb not null default '{}'::jsonb,
