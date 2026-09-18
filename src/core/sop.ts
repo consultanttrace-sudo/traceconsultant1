@@ -1,6 +1,0 @@
-export type SOPStepStatus='pending'|'in_progress'|'done'|'blocked';
-export interface SOPStep{id:string;order:number;title:string;instruction:string;owner:string;status:SOPStepStatus;requiredEvidence:string[];evidence:string[];control:string}
-export interface SOP{id:string;name:string;purpose:string;trigger:string;steps:SOPStep[];version:number;active:boolean}
-export function validateSOP(sop:SOP){const issues:string[]=[];if(!sop.id||!sop.name||!sop.purpose||!sop.trigger)issues.push('SOP identity, purpose, and trigger are required');const orders=sop.steps.map(s=>s.order);if(new Set(orders).size!==orders.length)issues.push('step order must be unique');for(const s of sop.steps){if(!s.title||!s.instruction||!s.owner)issues.push(`step ${s.id} missing required fields`);if(s.status==='done'&&s.requiredEvidence.some(e=>!s.evidence.includes(e)))issues.push(`step ${s.id} cannot be done without required evidence`);if(!s.control)issues.push(`step ${s.id} requires a control`)}return issues}
-export function buildSOP(input:Omit<SOP,'version'>&{version?:number}){const sop={...input,version:input.version??1};const issues=validateSOP(sop);if(issues.length)throw new Error(`INVALID_SOP: ${issues.join('; ')}`);return sop}
-export function nextSOPStep(sop:SOP){return [...sop.steps].sort((a,b)=>a.order-b.order).find(s=>s.status!=='done')??null}
