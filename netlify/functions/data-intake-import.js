@@ -17,18 +17,24 @@ exports.handler=async event=>{
   const payload=b.payload&&typeof b.payload==='object'?bounded(b.payload):{};
   const evidence=Array.isArray(b.evidence)?bounded(b.evidence):[];
   const status=safeStatus(b.status);
-  const row={actor_user_id:auth.user.id,source_hash:sourceHash,source_name:String(b.sourceName||'unknown').slice(0,255),source_type:String(b.sourceType||'unknown').slice(0,40),status,payload,evidence};
+  const clientId=String(b.clientId||payload.organizationId||'').trim()||null;
   try{
     const authHeader=event.headers?.authorization||event.headers?.Authorization||'';
-    const existingResponse=await fetchWithTimeout(`${BASE}/rest/v1/trace_data_intake_imports?actor_user_id=eq.${encodeURIComponent(auth.user.id)}&source_hash=eq.${encodeURIComponent(sourceHash)}&select=id,status&limit=1`,{headers:{apikey:KEY,Authorization:authHeader}},5000);
-    if(!existingResponse.ok)return json(existingResponse.status===401||existingResponse.status===403?403:502,{error:'Data Intake existing-state lookup failed'},event);
-    const existingRows=await existingResponse.json();
-    const existing=Array.isArray(existingRows)?existingRows[0]:null;
-    const current=existing?.status||'none';
-    const allowedTransition=(current==='none'&&status==='draft')||(current==='draft'&&['draft','reviewed'].includes(status))||(current==='reviewed'&&['reviewed','approved'].includes(status))||(current==='approved'&&status==='approved');
-    if(!allowedTransition)return json(409,{error:`Invalid import status transition: ${current} -> ${status}`},event);
-    const r=await fetchWithTimeout(`${BASE}/rest/v1/trace_data_intake_imports?on_conflict=actor_user_id%2Csource_hash`,{method:'POST',headers:{apikey:KEY,Authorization:authHeader, 'content-type':'application/json','prefer':'resolution=merge-duplicates,return=representation'},body:JSON.stringify(row)},5000);
-    const text=await r.text(); if(!r.ok)return json(r.status===401||r.status===403?403:502,{error:'Data Intake persistence failed'},event);
-    return json(202,{ok:true,status:row.status,import:r.ok&&text?JSON.parse(text)[0]:null,idempotent:true},event);
+    const r=await fetchWithTimeout(`${BASE}/rest/v1/rpc/trace_transition_data_intake`,{
+      method:'POST',
+      headers:{apikey:KEY,Authorization:authHeader,'content-type':'application/json'},
+      body:JSON.stringify({p_source_hash:sourceHash,p_source_name:String(b.sourceName||'unknown').slice(0,255),p_source_type:String(b.sourceType||'unknown').slice(0,40),p_status:status,p_payload:payload,p_evidence:evidence,p_client_id:clientId})
+    },10000);
+    const text=await r.text();
+    let body={}; try{body=text?JSON.parse(text):{}}catch{}
+    if(!r.ok){
+      const detail=String(body?.message||body?.hint||body?.details||body?.error||'');
+      if(/TRACE_IMPORT_CLIENT_REQUIRED/i.test(detail))return json(400,{error:'Client ID wajib dipilih sebelum approve import.'},event);
+      if(/TRACE_IMPORT_CLIENT_FORBIDDEN/i.test(detail))return json(403,{error:'Client scope tidak diizinkan untuk user ini.'},event);
+      if(/TRACE_IMPORT_INVALID_STATUS_TRANSITION/i.test(detail))return json(409,{error:'Status import tidak mengikuti alur Draft → Reviewed → Approved.'},event);
+      if(/TRACE_IMPORT_TEAM_MEMBER_REQUIRED|TRACE_IMPORT_AUTH_REQUIRED/i.test(detail))return json(403,{error:'User tidak memiliki akses team TRACE.'},event);
+      return json(r.status>=400&&r.status<500?r.status:502,{error:'Data Intake persistence failed',detail:detail.slice(0,300)},event);
+    }
+    return json(202,{ok:true,status,idempotent:body?.idempotent??false,import:body?.import??body},event);
   }catch(error){return json(502,{error:error?.name==='AbortError'?'Data Intake persistence timeout':'Data Intake persistence unavailable'},event)}
 };

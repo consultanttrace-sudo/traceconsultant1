@@ -14,17 +14,17 @@ const CLIENT_SCOPED_KEYS = new Set([
   'trace-stock-movement','trace-stock-opname','trace-marketing-event'
 ]);
 const RESOURCES = new Set([
-  'tasks','audit','imports','finance','products','sales','pos_events','inventory_movements','inventory_items',
+  'tasks','audit','clients','imports','finance','products','sales','pos_events','inventory_movements','inventory_items',
   'inventory_recipes','anomalies','alerts','health','social_accounts','content_items','content_metrics',
   'content_inquiries','ad_accounts','ad_campaigns','ad_metrics','competitor_accounts','competitor_snapshots',
-  'competitor_posts','competitor_discovery_lens','content_plans','ingestion','accounts','journal_entries','journal_lines'
+  'competitor_posts','competitor_discovery_lens','content_plans','ingestion','accounts','journal_entries','journal_lines','ar_invoices','ar_payments','ap_bills','ap_payments','fixed_assets','period_locks'
 ]);
-const CLIENT_SCOPED_RESOURCES = new Set([...RESOURCES].filter(x => x !== 'audit'));
+const CLIENT_SCOPED_RESOURCES = new Set([...RESOURCES].filter(x => x !== 'audit' && x !== 'clients'));
 const RESOURCE_RPC_KEYS = new Set([
   'tasks','imports','finance','products','sales','pos_events','inventory_movements','inventory_items',
   'inventory_recipes','anomalies','alerts','health','social_accounts','content_items','content_metrics',
   'content_inquiries','ad_accounts','ad_campaigns','ad_metrics','competitor_accounts','competitor_snapshots',
-  'competitor_posts','competitor_discovery_lens','content_plans','ingestion','accounts','journal_entries','journal_lines'
+  'competitor_posts','competitor_discovery_lens','content_plans','ingestion','accounts','journal_entries','journal_lines','ar_invoices','ar_payments','ap_bills','ap_payments','fixed_assets','period_locks'
 ]);
 const response=(statusCode,body,event)=>({statusCode,headers:{...cors(event),'content-type':'application/json','cache-control':'no-store'},body:JSON.stringify(body)});
 function parseList(raw,max){return [...new Set(String(raw||'').split(',').map(x=>x.trim()).filter(Boolean))].slice(0,max);}
@@ -80,6 +80,19 @@ exports.handler=async(event)=>{
     try{
       const url=`${base}/rest/v1/trace_audit_log?select=id,actor_user_id,action,entity_type,entity_id,before_data,after_data,reason,created_at&order=created_at.desc&limit=100`;
       const r=await fetchWithTimeout(url,{headers},5000);
+      if(!r.ok) throw new Error(`HTTP_${r.status}`);
+      const value=await r.json();
+      if(!Array.isArray(value)) throw new Error('INVALID_RESOURCE_RESPONSE');
+      out[name]=value;
+    }catch(error){unavailable.push({key:name,reason:error?.name==='AbortError'?'timeout':'unavailable'});}
+  }
+
+  // Client master list: internal team metadata, read via the audited RPC
+  // (trace_list_clients) rather than a broad PostgREST table query — same
+  // trust boundary as 'audit' above, never merged with per-client datasets.
+  for(const name of resources.filter(r=>r==='clients')){
+    try{
+      const r=await fetchWithTimeout(`${base}/rest/v1/rpc/trace_list_clients`,{method:'POST',headers,body:JSON.stringify({})},5000);
       if(!r.ok) throw new Error(`HTTP_${r.status}`);
       const value=await r.json();
       if(!Array.isArray(value)) throw new Error('INVALID_RESOURCE_RESPONSE');

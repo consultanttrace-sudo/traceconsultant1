@@ -35,3 +35,20 @@ const twice = calculateAvailableFinance(calculateAvailableFinance(complete));
 assert.equal(twice.fields.filter(f=>f.key==='grossProfit').length,1);
 assert.equal(twice.fields.filter(f=>f.key==='operatingProfit').length,1);
 console.log('Data intake idempotent derived fields: PASS');
+
+const multi=aggregateDelimitedRows(
+  ['Nama Bisnis','Outlet','Periode','Revenue','COGS','Labor','OPEX'],
+  [
+    ['Coffee A','Outlet 1','2026-03-01','100','40','10','20'],
+    ['Coffee A','Outlet 1','2026-04-01','200','80','20','30'],
+    ['Coffee A','Outlet 1','2026-05-01','300','120','30','40']
+  ]
+);
+assert.equal(multi.periodCount,3);
+assert.deepEqual(multi.periods,['2026-03','2026-04','2026-05']);
+assert.equal(multi.periodStart,'2026-03');
+assert.equal(multi.periodEnd,'2026-05');
+assert.equal(multi.period,'2026-03 → 2026-05');
+assert.equal(multi.monthlyBreakdown.length,3);
+assert.equal(multi.monthlyBreakdown[1].revenue,200);
+console.log('multi-period detection + monthly breakdown: PASS');
