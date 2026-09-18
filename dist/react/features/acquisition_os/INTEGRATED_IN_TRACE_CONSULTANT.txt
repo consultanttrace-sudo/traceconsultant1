@@ -1,0 +1,4 @@
+TRACE Acquisition OS V4.3 is integrated here as an isolated feature module.
+Existing TRACE Consultant OS V17 core files are preserved unchanged.
+Production Netlify functions are namespaced under /netlify/functions/acq-*.
+Open /TRACE_ACQUISITION_OS.html to launch the feature.
