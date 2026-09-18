@@ -120,3 +120,25 @@ production dengan data klien asli.
 6. Setelah live, cek ulang tiap section (termasuk export PDF/Excel dan
    tab Acquisition) dengan data klien sungguhan, bukan cuma data dummy
    seperti yang saya pakai untuk verifikasi di sesi ini.
+
+## TRACE v72.4 — AI / Diagnostic / Acquisition runtime variables
+
+For the AI Engineer Chat to become CONNECTED, configure these **server-side Netlify environment variables** (never put API keys in React/browser code):
+
+- `TRACE_AI_ENDPOINT` — OpenAI-compatible chat-completions endpoint, if using a custom provider.
+- `TRACE_AI_MODEL` — provider model identifier.
+- Or `OPENAI_API_KEY` + `OPENAI_MODEL` when using the built-in OpenAI-compatible endpoint in `netlify/functions/ai-chat.js`.
+- `SUPABASE_URL` and `SUPABASE_ANON_KEY` — required by authenticated Netlify functions.
+- `ACQ_ALLOWED_ORIGINS` — comma-separated production origins when cross-origin embedding requires it.
+
+After deployment, verify:
+1. Settings → AI Engineer Chat → **Tes koneksi** reports CONNECTED.
+2. Settings → Security Guard → **Jalankan security scan** returns server-side findings, not an empty browser-local scan.
+3. Settings → AI Diagnostic Center → **Run full diagnostic** returns a source manifest and telemetry status.
+4. Acquisition → Discovery creates a durable job without direct `trace_jobs` browser INSERT.
+
+## v72.9 — F&B Target & Capacity Planner
+- Apply `supabase/migrations/039_fnb_target_capacity_planner.sql` before using the new Target & Kapasitas module.
+- Module supports manual operational assumptions: seats, tables, seats/table, turns, occupancy, average ticket, operating days/hours, parking capacity/conversion, takeaway capacity, fixed cost, variable cost, desired profit, and actual revenue.
+- Calculation separates break-even revenue, profit-target revenue, theoretical capacity revenue, daily target, target transaction volume, required effective turns, and capacity/current gaps.
+- Saved plans are client-scoped in `trace_fnb_target_plans` with manual provenance and versioning.

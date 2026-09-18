@@ -4,6 +4,17 @@ import type { DiagnosticFinding } from './aiDiagnostic.js';
 export type RepairSafety = 'safe' | 'review_required' | 'blocked';
 export type RepairAction = 'patch' | 'dependency' | 'config' | 'test' | 'manual';
 
+export interface RepairPatchFile {
+  path: string;
+  content: string | null;
+  mode?: '100644' | '100755';
+}
+
+export interface RepairPatch {
+  files: RepairPatchFile[];
+  description?: string;
+}
+
 export interface RepairStep {
   action: RepairAction;
   title: string;
@@ -21,6 +32,7 @@ export interface DiagnosticRepairPlan {
   reason: string;
   steps: RepairStep[];
   verification: string[];
+  patch?: RepairPatch;
 }
 
 function base(f: DiagnosticFinding): DiagnosticRepairPlan {
@@ -80,19 +92,25 @@ export interface RepairApplyRequest {
   findingId: string;
   plan: DiagnosticRepairPlan;
   approved: boolean;
+  approvalId: string;
   workspaceId?: string;
 }
 
-export async function requestRepairApply(request: RepairApplyRequest, endpoint='/api/diagnostic-repair', token?:string) {
-  if (!request.approved) return { applied:false, status:'approval_required' as const };
-  if (!request.plan.canApplyAutomatically) return { applied:false, status:'review_required' as const };
-  if (typeof fetch === 'undefined' || !token) return { applied:false, status:'bridge_unavailable' as const };
+export async function requestRepairApply(request: RepairApplyRequest, endpoint = '/api/diagnostic-repair', token?: string) {
+  if (!request.approved) return { applied: false, status: 'approval_required' as const };
+  if (!request.approvalId) return { applied: false, status: 'approval_required' as const, reason: 'approval_id_required' };
+  if (!request.plan.patch?.files?.length) return { applied: false, status: 'patch_required' as const, reason: 'executable_patch_required' };
+  if (typeof fetch === 'undefined' || !token) return { applied: false, status: 'bridge_unavailable' as const, reason: 'session_token_required' };
   try {
-    const response = await fetchWithTimeout(endpoint, { method:'POST', headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body:JSON.stringify(request) }, 15000);
+    const response = await fetchWithTimeout(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...request, action: 'apply' }),
+    }, 30000);
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) return { applied:false, status:'failed' as const, reason:payload.error || `http_${response.status}` };
-    return { applied:Boolean(payload.applied), status:payload.status || 'unknown', payload };
+    if (!response.ok) return { applied: false, status: 'failed' as const, reason: payload.error || `http_${response.status}`, payload };
+    return { applied: Boolean(payload.applied), status: payload.status || 'unknown', payload };
   } catch (error) {
-    return { applied:false, status:'bridge_unavailable' as const, reason:error instanceof Error ? error.message : 'repair_bridge_unavailable' };
+    return { applied: false, status: 'bridge_unavailable' as const, reason: error instanceof Error ? error.message : 'repair_bridge_unavailable' };
   }
 }

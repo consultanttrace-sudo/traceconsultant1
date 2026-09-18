@@ -41,7 +41,7 @@ exports.handler = async (event) => {
   const auth = await requireAuth(event);
   if (!auth.ok) return response(auth.statusCode, { error: auth.error }, event);
   const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-  const key = process.env.SUPABASE_ANON_KEY || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
   const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
   try {
     const manifestPath = path.join(__dirname, '_diagnostic-manifest.json');
@@ -56,7 +56,7 @@ exports.handler = async (event) => {
     let supabaseConnected = false;
     let operationalJobs = [];
     if (base && key) {
-      const headers = { apikey: key, Authorization: authHeader };
+      const headers = { apikey: key, Authorization: `Bearer ${key}` };
       const [telemetryResult, jobsResult] = await Promise.allSettled([
         fetchWithTimeout(`${base}/rest/v1/trace_diagnostic_events?select=kind,payload,created_at&order=created_at.desc&limit=200`, { headers }, 2500),
         fetchWithTimeout(`${base}/rest/v1/trace_jobs?select=id,job_type,status,requested_by,progress,error,heartbeat_at,updated_at&order=updated_at.desc&limit=100`, { headers }, 2500)

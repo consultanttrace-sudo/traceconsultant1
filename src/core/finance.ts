@@ -12,6 +12,7 @@ export interface FinanceSummary {
   labor: number | null;
   opex: number | null;
   operatingProfit: number | null;
+  primeCost: number | null;
   grossMarginPct: number | null;
   cogsPct: number | null;
   laborPct: number | null;
@@ -45,6 +46,7 @@ export function summarizeFinance(records: FinanceRecord[], period: string): Fina
   const opex = categoryTotal(scoped, 'opex');
   const grossProfit = revenue !== null && cogs !== null ? revenue - cogs : null;
   const operatingProfit = revenue !== null && cogs !== null && labor !== null && opex !== null ? revenue - cogs - labor - opex : null;
+  const primeCost = cogs !== null && labor !== null ? cogs + labor : null;
   const evidenceCount = scoped.filter(r => r.evidence).length;
   const missingMetrics: string[] = [];
   if (revenue === null) missingMetrics.push('Revenue');
@@ -52,7 +54,7 @@ export function summarizeFinance(records: FinanceRecord[], period: string): Fina
   if (labor === null) missingMetrics.push('Labor');
   if (opex === null) missingMetrics.push('OPEX');
   return {
-    period, revenue, cogs, grossProfit, labor, opex, operatingProfit,
+    period, revenue, cogs, grossProfit, labor, opex, operatingProfit, primeCost,
     grossMarginPct: pct(grossProfit, revenue), cogsPct: pct(cogs, revenue), laborPct: pct(labor, revenue), opexPct: pct(opex, revenue), operatingMarginPct: pct(operatingProfit, revenue),
     recordCount: scoped.length, evidenceCount, missingMetrics
   };
@@ -83,4 +85,30 @@ function categoryTotal(records: FinanceRecord[], category: FinanceRecord['catego
 function pct(value: number | null, denominator: number | null): number | null {
   if (value === null || denominator === null || !Number.isFinite(value) || !Number.isFinite(denominator) || denominator === 0) return null;
   return (value / denominator) * 100;
+}
+
+export interface FinanceMonthlyView {
+  period: string; revenue:number|null; cogs:number|null; grossProfit:number|null; labor:number|null; opex:number|null; operatingProfit:number|null; primeCost:number|null;
+  grossMarginPct:number|null; cogsPct:number|null; laborPct:number|null; opexPct:number|null; operatingMarginPct:number|null; recordCount:number; missing:string[];
+}
+
+export interface FinanceQuality {
+  periods:number; records:number; evidenceCoveragePct:number; periodsWithAllCoreMetrics:number; missingByMetric:Record<string,number>; duplicateRisk:number;
+}
+
+export function buildFinanceMonthlyView(records: FinanceRecord[]): FinanceMonthlyView[] {
+  return [...new Set(records.map(r=>r.period).filter(Boolean))].sort().map(period=>{
+    const s=summarizeFinance(records,period);
+    return {period,revenue:s.revenue,cogs:s.cogs,grossProfit:s.grossProfit,labor:s.labor,opex:s.opex,operatingProfit:s.operatingProfit,primeCost:s.primeCost,grossMarginPct:s.grossMarginPct,cogsPct:s.cogsPct,laborPct:s.laborPct,opexPct:s.opexPct,operatingMarginPct:s.operatingMarginPct,recordCount:s.recordCount,missing:s.missingMetrics};
+  });
+}
+
+export function assessFinanceQuality(records: FinanceRecord[]): FinanceQuality {
+  const months=buildFinanceMonthlyView(records);
+  const core=['revenue','cogs','labor','opex'] as const;
+  const missingByMetric:Record<string,number>={};
+  for(const key of core) missingByMetric[key]=months.filter(m=>m[key]===null).length;
+  const evidence=records.length?Math.round(records.filter(r=>r.evidence).length/records.length*100):0;
+  const duplicateRisk=Math.max(0,records.length-new Set(records.map(r=>`${r.period}|${r.category}|${r.outletId??''}|${r.accountLabel??''}|${r.amount}`)).size);
+  return {periods:months.length,records:records.length,evidenceCoveragePct:evidence,periodsWithAllCoreMetrics:months.filter(m=>!m.missing.length).length,missingByMetric,duplicateRisk};
 }

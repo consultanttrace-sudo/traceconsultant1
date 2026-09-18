@@ -3959,24 +3959,22 @@ window.TRACE_ACQUISITION_BRIDGE = {
   async saveDiscoveryJob(job){
     if(!supa || !authSession?.user?.id) return false;
     try{
-      const {error}=await supa.from('trace_jobs').upsert({id:job.job_id,job_type:'acquisition_discovery',status:job.status||'RUNNING',requested_by:authSession.user.id,scope:{area:job.area||null,category:job.category||null,source:job.source||null},config:job.config||{},progress:job.progress||{},started_at:job.started_at||new Date().toISOString(),heartbeat_at:new Date().toISOString()},{onConflict:'id'});
-      return !error;
+      const {data,error}=await supa.rpc('trace_create_acquisition_job',{p_job_id:job.job_id,p_job_type:'acquisition_discovery',p_scope:{area:job.area||null,category:job.category||null,source:job.source||null},p_config:job.config||{},p_progress:job.progress||{}});
+      if(error) throw error; return !!data;
     }catch(e){console.warn('Durable discovery job unavailable:',e);return false;}
   },
   async saveDiscoveryCheckpoint(jobId, sequenceNo, stats, payload){
     if(!supa || !authSession?.user?.id) return false;
     try{
-      const {error}=await supa.from('trace_job_checkpoints').insert({job_id:jobId,sequence_no:sequenceNo,stats:stats||{},payload:payload||{},cursor:payload?.cursor||null});
-      if(error) { console.warn('Durable discovery checkpoint unavailable:',error); return false; }
-      return true;
+      const {data,error}=await supa.rpc('trace_save_acquisition_checkpoint',{p_job_id:jobId,p_sequence_no:sequenceNo,p_stats:stats||{},p_payload:{...(payload||{}),cursor:payload?.cursor||null}});
+      if(error) throw error; return !!data;
     }catch(e){console.warn('Durable discovery checkpoint unavailable:',e);return false;}
   },
   async updateDiscoveryJob(jobId,status,progress={},error=null){
     if(!supa || !authSession?.user?.id) return false;
     try{
-      const patch={status,progress,heartbeat_at:new Date().toISOString(),finished_at:['STOPPED','COMPLETED','PARTIAL_FAILURE','FAILED'].includes(status)?new Date().toISOString():null,error};
-      const {error:dbError}=await supa.from('trace_jobs').update(patch).eq('id',jobId);
-      return !dbError;
+      const {data,error:dbError}=await supa.rpc('trace_update_acquisition_job',{p_job_id:jobId,p_status:String(status).toUpperCase(),p_progress:progress||{},p_error:error||null});
+      if(dbError) throw dbError; return !!data;
     }catch(e){console.warn('Durable discovery job update unavailable:',e);return false;}
   },
   async getAccessToken(){ return authSession?.access_token || null; },

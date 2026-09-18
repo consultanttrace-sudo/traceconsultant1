@@ -1,7 +1,7 @@
 {
   "name": "trace-consultant-os",
   "private": true,
-  "version": "3.2.0-business-intelligence-platform-v72",
+  "version": "3.2.4-total-audit-hardening-v72.11",
   "type": "module",
   "scripts": {
     "typecheck:core": "tsc --noEmit",
@@ -17,10 +17,12 @@
     "test:phase13-15": "npm run build:core && node tests_core/phase13-15.mjs",
     "test:phase13-17": "npm run build:core && node tests_core/phase13-15.mjs && node tests_core/reporting.mjs",
     "test:react-truthfulness": "node tests_core/react-truthfulness.mjs",
-    "test:deterministic": "npm run build:core && node tests_core/react-truthfulness.mjs && node tests_core/ux-simplification.mjs && node tests_core/action-plan-kpi-sop.mjs && node tests_core/finance.test.mjs && node tests_core/finance-statement.test.mjs && node tests_core/sales-analytics.test.mjs && node tests_core/internal-diagnosis.mjs && node tests_core/phase13-15.mjs && node tests_core/reporting.mjs && node tests_core/test_platform_static.mjs && tsc -p tsconfig.core-platform.json && node tests_core/test_business_health_platform.mjs && node tests_core/test_v72_scope_static.mjs && node tests_core/test_v72_global_kv_boundary.mjs && node tests_core/test_accounting_v72.mjs && node tests_core/test_accounting_addon_v72.mjs && node tests_core/test_v72_3_ar_ap_assets_period_lock.mjs && node tests_core/test_chart_render.mjs",
+    "test:deterministic": "npm run build:core && node tests_core/react-truthfulness.mjs && node tests_core/ux-simplification.mjs && node tests_core/action-plan-kpi-sop.mjs && node tests_core/finance.test.mjs && node tests_core/finance-statement.test.mjs && node tests_core/sales-analytics.test.mjs && node tests_core/internal-diagnosis.mjs && node tests_core/phase13-15.mjs && node tests_core/reporting.mjs && node tests_core/test_platform_static.mjs && tsc -p tsconfig.core-platform.json && node tests_core/test_business_health_platform.mjs && node tests_core/test_v72_scope_static.mjs && node tests_core/test_v72_global_kv_boundary.mjs && node tests_core/test_accounting_v72.mjs && node tests_core/test_accounting_addon_v72.mjs && node tests_core/test_v72_3_ar_ap_assets_period_lock.mjs && node tests_core/test_data_intake.mjs && node tests_core/test_data_intake_p0_hardening.mjs && node tests_core/test_chart_render.mjs",
     "test:react-production-wiring": "node tests_core/react-production-wiring.mjs",
     "test:business-health-platform": "tsc -p tsconfig.core-platform.json && node tests_core/test_business_health_platform.mjs && node tests_core/test_platform_static.mjs && node tests_core/test_internal_scope_static.mjs && node tests_core/test_trace_data_scope.mjs",
-    "test:internal-scope": "node tests_core/test_internal_scope_static.mjs && node tests_core/test_trace_data_scope.mjs"
+    "test:internal-scope": "node tests_core/test_internal_scope_static.mjs && node tests_core/test_trace_data_scope.mjs",
+    "test:finance-intelligence": "npm run build:core && node tests_core/finance-intelligence.test.mjs && node tests_core/finance.test.mjs && node tests_core/finance-statement.test.mjs",
+    "test:ai-chat": "node tests_core/test_ai_chat_contract.mjs && node tests_core/test_ai_chat_configuration.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "1.1.23",
@@ -30,27 +32,28 @@
     "@supabase/supabase-js": "2.116.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "exceljs": "^4.4.0",
+    "jspdf": "4.2.1",
+    "jspdf-autotable": "5.0.8",
     "lucide-react": "1.43.0",
+    "mammoth": "1.12.2",
     "motion": "13.2.0",
+    "pdfjs-dist": "5.4.54",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "3.10.1",
     "tailwind-merge": "3.6.0",
+    "tesseract.js": "7.0.0",
     "three": "0.185.1",
-    "xlsx": "0.18.5",
-    "jspdf": "4.2.1",
-    "exceljs": "4.4.0",
-    "jspdf-autotable": "5.0.8",
-    "pdfjs-dist": "5.4.54",
-    "mammoth": "1.12.2",
-    "tesseract.js": "7.0.0"
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.7",
-    "@vitejs/plugin-react": "6.1.1",
-    "tailwindcss": "4.3.3",
     "@types/three": "0.180.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "playwright": "^1.63.0",
+    "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.2.2"
   },

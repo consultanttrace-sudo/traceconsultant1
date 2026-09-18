@@ -17,6 +17,45 @@ function valueFromText(text: string, labels: string[]): string | null {
   return m?.[1]?.trim() || null;
 }
 
+function enrichPeriodMetadata(result: IntakeResult, periods: string[]): IntakeResult {
+  const unique = [...new Set(periods.filter(Boolean))].sort();
+  result.periods = unique;
+  result.periodCount = unique.length;
+  result.periodStart = unique[0] ?? null;
+  result.periodEnd = unique.at(-1) ?? null;
+  if (unique.length > 1) result.period.value = `${unique[0]} → ${unique.at(-1)}`;
+  else if (unique.length === 1) result.period.value = unique[0];
+  if (unique.length > 1) result.warnings.push(`Dataset mencakup ${unique.length} periode: ${unique[0]} sampai ${unique.at(-1)}. TRACE mempertahankan dimensi periode dan tidak menganggap seluruh total sebagai satu bulan.`);
+  return result;
+}
+
+function normalizePeriodValue(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const ym = raw.match(/^(\d{4})[-\/.](\d{1,2})(?:[-\/.]\d{1,2})?/);
+  if (ym) return `${ym[1]}-${ym[2].padStart(2,'0')}`;
+  const monthYear = raw.match(/^(\d{1,2})[-\/.](\d{4})$/);
+  if (monthYear) return `${monthYear[2]}-${monthYear[1].padStart(2,'0')}`;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+}
+
+function enrichMonthlyBreakdown(result: IntakeResult, rows: unknown[][], headers: unknown[], periodIndex: number, revenueIndex: number, cogsIndex: number, laborIndex: number, opexIndex: number): IntakeResult {
+  const map = new Map<string,{period:string;revenue:number|null;cogs:number|null;labor:number|null;opex:number|null;rowCount:number;financeEvidence:{revenue:number;cogs:number;labor:number;opex:number}}>();
+  const dateIndex = headers.map(normalizeHeader).findIndex(h => ['tanggal transaksi','transaction date','transaction_date','sold at','sold_at','occurred at','occurred_at','datetime','timestamp'].some(a=>h===a||h.includes(a)));
+  for (const row of rows) {
+    const period = normalizePeriodValue(periodIndex >= 0 ? row[periodIndex] : dateIndex >= 0 ? row[dateIndex] : null);
+    if (!period) continue;
+    const current = map.get(period) ?? {period,revenue:null,cogs:null,labor:null,opex:null,rowCount:0,financeEvidence:{revenue:0,cogs:0,labor:0,opex:0}};
+    const add=(key:'revenue'|'cogs'|'labor'|'opex', index:number)=>{const value=index>=0?parseAmount(row[index]):null;if(value!==null){current[key]=(current[key]??0)+value;current.financeEvidence[key]++;}};
+    add('revenue',revenueIndex); add('cogs',cogsIndex); add('labor',laborIndex); add('opex',opexIndex);
+    current.rowCount++;
+    map.set(period,current);
+  }
+  result.monthlyBreakdown=[...map.values()].sort((a,b)=>a.period.localeCompare(b.period));
+  return enrichPeriodMetadata(result,result.monthlyBreakdown.map(x=>x.period));
+}
+
 function buildFromUnstructuredText(text: string, sourceFile: string): IntakeResult {
   const businessName = valueFromText(text, ['Nama Bisnis','Nama Usaha','Business Name','Company','Nama Coffee','Nama Cafe']);
   const outletName = valueFromText(text, ['Outlet','Nama Outlet','Cabang','Branch','Lokasi']);
@@ -68,18 +107,25 @@ export async function parseWorkbook(file: File, sourceIdentity=file.name): Promi
     const sum = (idx: number) => idx < 0 ? null : nonEmpty.map((r: unknown[]) => parseAmount(r[idx])).filter((v: number | null): v is number => v !== null).reduce((a: number,b: number)=>a+b,0);
     const first = (idx: number) => idx < 0 ? null : String(nonEmpty.find((r: unknown[]) => r[idx] !== null && String(r[idx]).trim() !== '')?.[idx] ?? '').trim() || null;
     const candidate = calculateAvailableFinance(buildIntakeResult({ businessName:first(indices.businessName), outletName:first(indices.outletName), period:first(indices.period), revenue:sum(indices.revenue), cogs:sum(indices.cogs), labor:sum(indices.labor), opex:sum(indices.opex) }));
+    enrichMonthlyBreakdown(candidate, nonEmpty, headers, indices.period, indices.revenue, indices.cogs, indices.labor, indices.opex);
     candidate.fields.forEach((f) => { if (f.status === 'available') f.evidence = { sourceFile: file.name, sourceSheet: sheetName, rawValue: String(f.value ?? '') }; });
-    const identity = { businessName: candidate.businessName.value, outletName: candidate.outletName.value, period: candidate.period.value };
+    const identity = { businessName: candidate.businessName.value, outletName: candidate.outletName.value };
     if (!combined) {
       combined = candidate;
-      combinedIdentity = identity;
-    } else if (!mergeBlocked && combinedIdentity && identity.businessName === combinedIdentity.businessName && identity.outletName === combinedIdentity.outletName && identity.period === combinedIdentity.period) {
-      // Sheets are merged only when their business/outlet/period identity matches.
-      // This prevents silently summing unrelated months, outlets, or businesses.
+      combinedIdentity = { ...identity, period: candidate.period.value };
+    } else if (!mergeBlocked && combinedIdentity && identity.businessName === combinedIdentity.businessName && identity.outletName === combinedIdentity.outletName) {
+      // Different periods within the same business/outlet are intentionally merged into one dataset,
+      // while preserving monthlyBreakdown. Unrelated business/outlet contexts remain isolated.
       for (const key of ['revenue','cogs','labor','opex'] as const) {
         const target = combined[key]; const incoming = candidate[key];
         if (incoming.value !== null) { target.value = (target.value ?? 0) + incoming.value; target.status = 'available'; target.evidence = incoming.evidence; }
       }
+      const allMonths=[...(combined.periods??[]),...(candidate.periods??[])].filter(Boolean);
+      combined.periods=[...new Set(allMonths)].sort(); combined.periodCount=combined.periods.length; combined.periodStart=combined.periods[0]??null; combined.periodEnd=combined.periods.at(-1)??null;
+      combined.period.value=combined.periods.length>1?`${combined.periods[0]} → ${combined.periods.at(-1)}`:(combined.periods[0]??null);
+      const merged=new Map<string,any>();
+      for(const m of [...(combined.monthlyBreakdown??[]),...(candidate.monthlyBreakdown??[])]) { const cur=merged.get(m.period)||{...m}; if(merged.has(m.period)){ for(const key of ['revenue','cogs','labor','opex'] as const){ if(m[key]!==null) cur[key]=(cur[key]??0)+m[key]; } cur.rowCount+=m.rowCount; cur.financeEvidence={revenue:(cur.financeEvidence?.revenue??0)+(m.financeEvidence?.revenue??0),cogs:(cur.financeEvidence?.cogs??0)+(m.financeEvidence?.cogs??0),labor:(cur.financeEvidence?.labor??0)+(m.financeEvidence?.labor??0),opex:(cur.financeEvidence?.opex??0)+(m.financeEvidence?.opex??0)}; } merged.set(m.period,cur); }
+      combined.monthlyBreakdown=[...merged.values()].sort((a,b)=>a.period.localeCompare(b.period));
     } else if (!mergeBlocked) {
       mergeBlocked = true;
       warnings.push(`Workbook memiliki beberapa sheet dengan konteks bisnis/outlet/periode berbeda; TRACE tidak menjumlahkannya secara otomatis. Review sheet secara terpisah untuk mencegah double-counting atau pencampuran periode.`);
@@ -115,9 +161,32 @@ export async function parsePdf(file: File, onProgress?: (message: string) => voi
     const content = await page.getTextContent();
     chunks.push(content.items.map((item: any) => String(item.str ?? '')).join(' '));
   }
-  const text = chunks.join('\n');
+  let text = chunks.join('\n');
+  const warnings: string[] = [];
+  if (!text.trim()) {
+    // Automatic OCR fallback for scanned PDFs. The first pass uses the text
+    // layer because it is faster and preserves document structure; only pages
+    // without a usable text layer are rendered and sent through Tesseract.
+    const Tesseract = await import('tesseract.js');
+    const ocrChunks: string[] = [];
+    const scale = 1.5;
+    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+      onProgress?.(`OCR PDF halaman ${pageNo}/${pdf.numPages}…`);
+      const page = await pdf.getPage(pageNo);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) continue;
+      await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+      const out = await Tesseract.recognize(canvas, 'ind+eng', { logger: (m: any) => { if (m.status) onProgress?.(`OCR ${m.status}${typeof m.progress === 'number' ? ` ${Math.round(m.progress*100)}%` : ''}`); } });
+      ocrChunks.push(out.data.text || '');
+    }
+    text = ocrChunks.join('\n');
+    if (!text.trim()) warnings.push('OCR PDF tidak menemukan teks yang dapat dibaca.');
+    else warnings.push('PDF tidak memiliki text layer; TRACE menggunakan OCR otomatis.');
+  }
   const result = buildFromUnstructuredText(text, file.name);
-  const warnings = text.trim() ? [] : ['PDF tidak memiliki text layer. OCR diperlukan untuk PDF hasil scan.'];
   return { result, sourceType: 'pdf', extractedRows: pdf.numPages, warnings };
 }
 

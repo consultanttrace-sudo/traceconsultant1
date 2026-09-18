@@ -1,0 +1,6 @@
+import fs from 'node:fs';
+const app=fs.readFileSync(new URL('../src/app/main.tsx',import.meta.url),'utf8');
+const sql=fs.readFileSync(new URL('../supabase/migrations/040_fnb_operational_manual_crud.sql',import.meta.url),'utf8');
+for (const x of ['Inventory & Recipe','trace_create_inventory_item','trace_create_inventory_recipe','trace_create_inventory_movement','Target & Kapasitas','Labor Capacity']) if(!app.includes(x)) throw new Error('missing UI contract: '+x);
+for (const x of ['trace_create_inventory_item','trace_update_inventory_item','trace_create_inventory_recipe','trace_delete_inventory_recipe','trace_create_inventory_movement']) if(!sql.includes(x)) throw new Error('missing RPC: '+x);
+console.log('fnb consultant engine v72.10 static contract PASS');
