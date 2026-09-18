@@ -179,7 +179,7 @@ language sql stable security definer set search_path=public as $$
     and organization_id=trim(p_client_id)
     and event_date >= p_start_date and event_date <= p_end_date
   group by channel
-  order by total_spend desc;
+  order by 2 desc;
 $$;
 revoke all on function public.trace_marketing_channel_summary(text,date,date) from public;
 grant execute on function public.trace_marketing_channel_summary(text,date,date) to authenticated;
