@@ -6,10 +6,16 @@ const response=(status,body,event)=>({statusCode:status,headers:{...cors(event),
 const SENSITIVE=/(authorization|cookie|token|password|secret|api[-_]?key|private[-_]?key|service[-_]?role)/i;
 function add(out,x,id){out.push({...x,id});}
 function lineOf(c,i){return c.slice(0,i).split(/\r?\n/).length;}
+const SELF_SCAN_EXCLUDE=[
+  'netlify/functions/security-scan.js',
+  'src/core/aiSecurity.ts',
+];
 function scan(files){
   const out=[];
   for(const file of files||[]){
-    const c=String(file.content||''), p=String(file.path||'');
+    const p=String(file.path||'');
+    if(SELF_SCAN_EXCLUDE.some(skip=>p.endsWith(skip)))continue;
+    const c=String(file.content||'');
     const secret=/(?:SUPABASE_SERVICE_ROLE_KEY|SERVICE_ROLE|PRIVATE_KEY|SECRET_KEY)\s*=\s*["'`]?\w[\w.\-]{15,}/.exec(c);
     if(secret)add(out,{severity:'critical',category:'secrets',status:'confirmed',title:'Potential secret embedded in source',cause:'A privileged/secret key pattern appears in the scanned source.',impact:'A leaked repository or bundle could expose privileged credentials.',recommendation:'Remove it from source and rotate it if real; privileged keys must remain server-side.',evidence:[{source:'server manifest',file:p,line:lineOf(c,secret.index),detail:'Secret-like assignment detected.'}]},`secret:${p}`);
     const priv=/createClient\([^\n]*(SERVICE_ROLE|service_role)|Authorization:\s*`Bearer \$\{[^}]*SERVICE_ROLE/i.exec(c);
