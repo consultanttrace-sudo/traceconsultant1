@@ -91,13 +91,22 @@ export async function installAcquisitionBridge(){
       return !!data;
     },
     createClientFromLead:async(lead)=>{
-      const clients=await readTraceKvArray('trace_os::trace-clients');
+      // v72.13 — client master data now lives in public.trace_clients
+      // (audited RPCs), not the legacy trace_os::trace-clients KV blob.
+      // Convert-lead-to-client now reads/writes through the same RPCs
+      // ClientsView uses, so new clients are visible everywhere immediately.
+      const supabase=await requireReactSession();
+      const {data:existingRows,error:listError}=await supabase.rpc('trace_list_clients');
+      if(listError) throw listError;
       const normalizedName=String(lead.business_name||'').trim().toLowerCase();
-      const existing=clients.find(c=>String(c.name||c.business_name||'').trim().toLowerCase()===normalizedName && normalizedName);
-      if(existing) return {existing:true,client:existing};
-      const client={id:`client_${crypto.randomUUID()}`,name:lead.business_name||'Unnamed client',createdAt:Date.now(),source:'acquisition',acquisitionLeadId:lead.id};
-      await writeTraceKv('trace_os::trace-clients',[...clients,client]);
-      return {existing:false,client};
+      const existing=(Array.isArray(existingRows)?existingRows:[]).find((c:Record<string,unknown>)=>String(c.name||'').trim().toLowerCase()===normalizedName && normalizedName);
+      if(existing) return {existing:true,client:existing as AcquisitionLeadRecord};
+      const {data:created,error:createError}=await supabase.rpc('trace_create_client',{
+        p_name:String(lead.business_name||'Unnamed client'),
+        p_package:'Starter', p_status:'Trial', p_pic_name:'', p_drive_folder_link:'', p_notes:''
+      });
+      if(createError) throw createError;
+      return {existing:false,client:created as AcquisitionLeadRecord};
     }
   };
   window.TRACE_ACQUISITION_BRIDGE=bridge;
@@ -109,14 +118,44 @@ export async function loadTraceCollections(keys: readonly string[], resources: r
   const {data:sessionData,error:sessionError}=await supabase.auth.getSession();
   if(sessionError) throw sessionError;
   if(!sessionData.session) throw new Error('Session Supabase tidak tersedia.');
-  const qs=encodeURIComponent(keys.join(','));
-  const rq=encodeURIComponent(resources.join(','));
+
+  // v72.13 — legacy shim: 'trace-clients' used to be a KV blob key
+  // (trace_os::trace-clients). Client master data now lives in the real
+  // public.trace_clients table, read via the 'clients' resource (RPC
+  // trace_list_clients). Any caller still asking for the old KV key is
+  // transparently redirected to the new resource here, and the rows are
+  // reshaped back into the array-of-objects shape the 21 existing view
+  // consumers already expect (they only ever read .id / .name, with a
+  // .business_name fallback that is simply never populated by the new rows).
+  const legacyClientsRequested = keys.includes('trace-clients');
+  const effectiveKeys = legacyClientsRequested ? keys.filter(k=>k!=='trace-clients') : keys;
+  const wantedClientsResource = resources.includes('clients');
+  const effectiveResources = legacyClientsRequested && !wantedClientsResource ? [...resources,'clients'] : resources;
+
+  const qs=encodeURIComponent(effectiveKeys.join(','));
+  const rq=encodeURIComponent(effectiveResources.join(','));
   const scope=clientId?.trim()?`&client_id=${encodeURIComponent(clientId.trim())}`:'';
-  const query=keys.length ? `keys=${qs}${resources.length?`&resources=${rq}`:''}${scope}` : `resources=${rq}${scope}`;
+  const query=effectiveKeys.length ? `keys=${qs}${effectiveResources.length?`&resources=${rq}`:''}${scope}` : `resources=${rq}${scope}`;
   const response=await fetchWithTimeout(`/api/trace-data?${query}`,{headers:{Authorization:`Bearer ${sessionData.session.access_token}`}},10000);
   const payload=await response.json().catch(()=>({}));
   if(!response.ok) throw new Error(payload.error||`Trace data HTTP ${response.status}`);
-  return {data:(payload.data&&typeof payload.data==='object')?payload.data:{},unavailable:Array.isArray(payload.unavailable)?payload.unavailable.map((x:unknown)=>typeof x==='object'&&x&&'key' in x?String((x as {key:unknown}).key):'unknown'):[]};
+
+  const data:Record<string,unknown>=(payload.data&&typeof payload.data==='object')?{...payload.data}:{};
+  const unavailable:string[]=Array.isArray(payload.unavailable)?payload.unavailable.map((x:unknown)=>typeof x==='object'&&x&&'key' in x?String((x as {key:unknown}).key):'unknown'):[];
+
+  if(legacyClientsRequested){
+    const rows=Array.isArray(data['clients'])?data['clients'] as Record<string,unknown>[]:[];
+    data['trace-clients']=rows.map(r=>({
+      id:r.id, name:r.name, package:r.package, status:r.status,
+      pic_name:r.pic_name, drive_folder_link:r.drive_folder_link, notes:r.notes,
+      createdAt:r.created_at, updatedAt:r.updated_at,
+    }));
+    if(!wantedClientsResource) delete data['clients'];
+    const idx=unavailable.indexOf('clients');
+    if(idx!==-1) unavailable[idx]='trace-clients';
+  }
+
+  return {data, unavailable};
 }
 export function asArray(value:unknown): unknown[]{return Array.isArray(value)?value:[];}
 export function useTraceCollections(keys:readonly string[] = TRACE_KEYS, resources:readonly TraceResource[] = [], clientId?: string): TraceCollectionState {
