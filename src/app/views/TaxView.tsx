@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { calculatePpn, extractPpnFromGrossPrice, calculatePphFinalUmkm, summarizeMonthlyTax, type PpnResult, type PphFinalUmkmResult, type TaxSummary } from '../../core/taxCalculator';
 import { money, inputStyle } from './_shared';
+import { TracePageHeader, TraceCard } from '../components/TraceUI';
 
 const numOrNull=(s:string):number|null=>{ const n=Number(s); return s.trim()!==''&&Number.isFinite(n)?n:null; };
 const btnStyle:React.CSSProperties={border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700,cursor:'pointer'};
@@ -48,19 +49,15 @@ export function TaxView(){
   const rawSelisih=summary?summary.ppnKeluaran-summary.ppnMasukan:null;
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}>
-      <div className="trace-muted" style={{fontSize:12}}>AKUNTANSI · KALKULATOR PAJAK (INPUT MANUAL)</div>
-      <h1 style={{margin:'7px 0 5px',fontSize:30}}>Estimasi PPN &amp; PPh Final UMKM</h1>
-      <div className="trace-muted">
+    <TracePageHeader kicker="AKUNTANSI · KALKULATOR PAJAK (INPUT MANUAL)" title="Estimasi PPN & PPh Final UMKM" description={<>
         Kalkulator ini murni input manual — bukan otomatis dari data transaksi TRACE. Hanya untuk estimasi internal
         memakai tarif publik umum saat ditulis (PPN 11%, PPh Final UMKM 0,5%). <strong>Bukan pengganti akuntan/konsultan
         pajak resmi, bukan alat lapor SPT ke DJP</strong>, dan tidak memperhitungkan status PKP, jenis usaha, atau skema
         pajak khusus klien. Tarif bisa berubah — selalu verifikasi ke peraturan terbaru dan akuntan klien sebelum angka
         ini dipakai untuk keputusan atau pelaporan resmi.
-      </div>
-    </div>
+      </>} />
 
-    <div className="trace-card">
+    <TraceCard>
       <strong>1 · PPN</strong>
       <div className="trace-muted" style={{fontSize:12,marginTop:4}}>Pilih apakah angka yang Anda punya sudah termasuk PPN atau belum.</div>
       <div style={{display:'flex',gap:16,marginTop:10,fontSize:13}}>
@@ -79,9 +76,9 @@ export function TaxView(){
         <div style={{...rowStyle,fontWeight:700}}><span>PPN</span><span>{money(ppnResult.ppn)}</span></div>
         <div style={rowStyle}><span>Total termasuk PPN</span><span>{money(ppnResult.totalTermasukPpn)}</span></div>
       </div>}
-    </div>
+    </TraceCard>
 
-    <div className="trace-card">
+    <TraceCard>
       <strong>2 · PPh Final UMKM</strong>
       <div className="trace-muted" style={{fontSize:12,marginTop:4}}>0,5% dari omset bulanan (bukan dari laba). Kelayakan skema ini harus dicek ke akuntan klien — kalkulator ini tidak memvalidasinya.</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 140px auto',gap:8,marginTop:10,alignItems:'end'}}>
@@ -95,9 +92,9 @@ export function TaxView(){
         <div style={rowStyle}><span>Tarif</span><span>{pphResult.tarifPersen}%</span></div>
         <div style={{...rowStyle,fontWeight:700}}><span>PPh Final Terutang</span><span>{money(pphResult.pphTerutang)}</span></div>
       </div>}
-    </div>
+    </TraceCard>
 
-    <div className="trace-card">
+    <TraceCard>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
         <strong>3 · Ringkasan Pajak Bulanan</strong>
         {(ppnResult||pphResult)&&<button onClick={()=>{ if(ppnResult) setPpnKeluaran(String(ppnResult.ppn)); if(pphResult) setPphFinalInput(String(pphResult.pphTerutang)); }} style={{border:'1px solid rgba(23,23,23,.14)',borderRadius:8,padding:'6px 10px',background:'#fff',fontWeight:700,fontSize:12,cursor:'pointer'}}>Isi dari hasil di atas</button>}
@@ -122,6 +119,6 @@ export function TaxView(){
           PPN Masukan lebih besar dari PPN Keluaran (selisih {money(rawSelisih)}) — ini kelebihan bayar (lebih bayar), bukan Rp0. `summarizeMonthlyTax` menampilkan PPN Kurang Bayar sebagai Rp0 karena tidak bisa negatif, tapi kelebihan bayar ini tetap perlu dikonfirmasi ke akuntan klien, jangan diabaikan.
         </div>}
       </div>}
-    </div>
+    </TraceCard>
   </div>;
 }

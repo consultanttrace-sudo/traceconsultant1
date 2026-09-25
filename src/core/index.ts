@@ -1,7 +1,6 @@
 export * from './evidence.js';
 export * from './calculation.js';
 export * from './intelligence.js';
-export * from './business.js';
 
 export * from './finance.js';
 export * from './dataIntake.js';

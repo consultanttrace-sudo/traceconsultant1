@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import { readReactSource } from './_react_source.mjs';
 
-const main = fs.readFileSync('src/app/main.tsx', 'utf8');
+const main=readReactSource();
 const sql032 = fs.readFileSync('supabase/migrations/032_ar_ap_fixed_assets_period_close_v72.sql', 'utf8');
 const sql033 = fs.readFileSync('supabase/migrations/033_client_scope_ar_ap_assets_read_v72.sql', 'utf8');
 
@@ -42,12 +43,12 @@ for (const key of ['ar_invoices', 'ar_payments', 'ap_bills', 'ap_payments', 'fix
 assert.match(sql033, /revoke select on\s+public\.trace_ar_invoices, public\.trace_ar_payments,\s+public\.trace_ap_bills, public\.trace_ap_payments,\s+public\.trace_fixed_assets, public\.trace_period_locks\s+from authenticated/);
 
 // --- UI React: AccountingView benar-benar fetch dan panggil RPC-nya, bukan cuma logic .ts yang tidak dipakai ---
-assert.match(main, /import \{ buildArAging, type ArInvoice, type ArPayment \} from '\.\.\/core\/accountsReceivable'/);
-assert.match(main, /import \{ buildApAging, type ApBill, type ApPayment \} from '\.\.\/core\/accountsPayable'/);
-assert.match(main, /import \{ buildDepreciationSchedule, totalMonthlyDepreciation, type FixedAsset \} from '\.\.\/core\/fixedAssets'/);
-assert.match(main, /import \{ isPeriodLocked, type PeriodLock \} from '\.\.\/core\/periodClose'/);
-assert.match(main, /import \{ buildBalanceSheet, type BalanceSheetGroup \} from '\.\.\/core\/balanceSheet'/);
-assert.match(main, /import \{ withInferredSubTypes \} from '\.\.\/core\/accountSubTypeInference'/);
+assert.match(main, /import \{ buildArAging, type ArInvoice, type ArPayment \} from '\.\.(?:\/\.\.)?\/core\/accountsReceivable'/);
+assert.match(main, /import \{ buildApAging, type ApBill, type ApPayment \} from '\.\.(?:\/\.\.)?\/core\/accountsPayable'/);
+assert.match(main, /import \{ buildDepreciationSchedule, totalMonthlyDepreciation, type FixedAsset \} from '\.\.(?:\/\.\.)?\/core\/fixedAssets'/);
+assert.match(main, /import \{ isPeriodLocked, type PeriodLock \} from '\.\.(?:\/\.\.)?\/core\/periodClose'/);
+assert.match(main, /import \{ buildBalanceSheet, type BalanceSheetGroup \} from '\.\.(?:\/\.\.)?\/core\/balanceSheet'/);
+assert.match(main, /import \{ withInferredSubTypes \} from '\.\.(?:\/\.\.)?\/core\/accountSubTypeInference'/);
 
 assert.match(main, /'ar_invoices','ar_payments','ap_bills','ap_payments','fixed_assets','period_locks'/);
 for (const rpc of [

@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import { readReactSource } from './_react_source.mjs';
 const root=new URL('..',import.meta.url);
 const migration=fs.readFileSync(new URL('supabase/migrations/024_business_intelligence_platform.sql',root),'utf8');
 const canonicalMigration=fs.readFileSync(new URL('supabase/migrations/025_canonical_import_commit.sql',root),'utf8');
 for(const table of ['trace_ingestion_records','trace_pos_events','trace_inventory_items','trace_inventory_movements','trace_inventory_recipes','trace_anomalies','trace_business_alerts','trace_business_health_snapshots']) assert.match(migration,new RegExp(`create table if not exists public\\.${table}`));
 assert.match(migration,/enable row level security/); assert.match(migration,/trace_is_org_member\(p_organization_id\)/); assert.ok(migration.indexOf('create or replace function public.trace_is_org_member') < migration.indexOf('create or replace function public.trace_record_anomaly')); assert.match(migration,/trace_transition_business_alert/); assert.match(canonicalMigration,/trace_commit_canonical_pos_import/); assert.match(canonicalMigration,/TRACE_CANONICAL_IMPORT_NOT_APPROVED/); assert.match(canonicalMigration,/TRACE_CANONICAL_ORG_MISMATCH/); assert.match(canonicalMigration,/on conflict \(organization_id,provider,source_record_id\) do nothing/); assert.match(migration,/grant execute on function public\.trace_transition_business_alert/);
-const app=fs.readFileSync(new URL('src/app/main.tsx',root),'utf8');
+const app=readReactSource();
 assert.match(app,/BusinessHealthView/); assert.match(app,/Commit canonical data/); assert.match(app,/trace_commit_canonical_pos_import/); assert.doesNotMatch(app,/id:'seed-1'/); assert.doesNotMatch(app,/Math\.random\(\)/);
 const trace=fs.readFileSync(new URL('netlify/functions/trace-data.js',root),'utf8');
 for(const r of ['pos_events','inventory_movements','inventory_items','inventory_recipes','anomalies','alerts','health']) assert.match(trace,new RegExp(`['\"]${r}['\"]`)); assert.match(trace,/trace_read_client_dataset/);

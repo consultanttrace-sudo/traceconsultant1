@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { requireReactSession, loadTraceCollections, asArray, useTraceCollections, money, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { useOutletScope, usePeriodScope } from '../scopeStore';
+import { OutletSelector } from '../components/ScopeSelectors';
+import { TracePageHeader, TraceCard, TraceEmptyState } from '../components/TraceUI';
 
 export function PayrollView(){
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
-  const [clientId,setClientId]=useState(''); const [outletId,setOutletId]=useState('');
+  const [clientId,setClientId]=useClientScope(); const [outletId]=useOutletScope();
   const [employees,setEmployees]=useState<Array<Record<string,unknown>>>([]);
   const [runs,setRuns]=useState<Array<Record<string,unknown>>>([]);
   const [runId,setRunId]=useState('');
@@ -14,7 +18,8 @@ export function PayrollView(){
   const [msg,setMsg]=useState(''); const [busy,setBusy]=useState(false);
   const emptyEmp={code:'',name:'',position:'',type:'tetap',salary:'',hourly:''};
   const [empForm,setEmpForm]=useState(emptyEmp);
-  const [openForm,setOpenForm]=useState({period:new Date().toISOString().slice(0,7),notes:''});
+  const ps=usePeriodScope('current'); const [openForm,setOpenForm]=useState({period:ps.period,notes:''});
+  useEffect(()=>{setOpenForm(f=>f.period===ps.period?f:{...f,period:ps.period});},[ps.period]);
   const emptyLine={employeeId:'',days:'',otHours:'',otMult:'1.5',allowTransport:'',allowMeal:'',allowOther:'',thr:'',bonus:'',bpjsKesEmp:'',bpjsKesCo:'',bpjsJhtEmp:'',bpjsJhtCo:'',bpjsJkkCo:'',bpjsJkmCo:'',bpjsJpEmp:'',bpjsJpCo:'',pph21:'',otherDed:'',dedNotes:''};
   const [lineForm,setLineForm]=useState(emptyLine);
   const [postForm,setPostForm]=useState({labor:'',bpjs:'',tax:'',cash:'',date:new Date().toISOString().slice(0,10)});
@@ -48,15 +53,15 @@ export function PayrollView(){
   const totals=lines.reduce((a:{gross:number;net:number;cost:number},l)=>({gross:a.gross+Number(l.gross_pay||0),net:a.net+Number(l.net_pay||0),cost:a.cost+Number(l.employer_cost_total||0)}),{gross:0,net:0,cost:0});
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>LABOR · PAYROLL</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Payroll dengan BPJS, PPh 21, THR &amp; lembur — dihitung server, bukan Excel manual.</h1><div className="trace-muted">Gross/net/biaya employer dihitung otomatis saat baris disimpan. Posting hanya bisa dari status Approved, dan langsung membentuk jurnal beban gaji + hutang BPJS/pajak.</div></div>
-    <div className="trace-card" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+    <TracePageHeader kicker="LABOR · PAYROLL" title="Payroll dengan BPJS, PPh 21, THR & lembur — dihitung server, bukan Excel manual." description="Gross/net/biaya employer dihitung otomatis saat baris disimpan. Posting hanya bisa dari status Approved, dan langsung membentuk jurnal beban gaji + hutang BPJS/pajak." />
+    <TraceCard style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
       <label>Klien<select value={clientId} onChange={e=>{setClientId(e.target.value);setRunId('');setLines([]);}} style={inputStyle}><option value="">Pilih klien</option>{clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}</select></label>
-      <label>Outlet (opsional)<input value={outletId} onChange={e=>setOutletId(e.target.value)} placeholder="Kosongkan untuk pusat" style={inputStyle}/></label>
-    </div>
+      <OutletSelector clientId={clientId}/>
+    </TraceCard>
     {msg&&<div className="trace-muted" style={{fontSize:12}}>{msg}</div>}
     {clientId&&<>
-      <div className="trace-card"><strong>Karyawan</strong>
-        <div style={{marginTop:10,display:'grid',gap:5,fontSize:13}}>{employees.length===0?<div className="trace-muted" style={{fontSize:12}}>Belum ada karyawan.</div>:employees.map(e=><div key={String(e.id)} style={{display:'grid',gridTemplateColumns:'1.3fr 1fr 1fr 1fr',gap:8,padding:'5px 0',borderTop:'1px solid rgba(23,23,23,.06)'}}><span>{String(e.name)}</span><span className="trace-muted">{String(e.position??'—')}</span><span className="trace-muted">{String(e.employment_type)}</span><span>{money(Number(e.base_salary||0))}</span></div>)}</div>
+      <TraceCard><strong>Karyawan</strong>
+        <div style={{marginTop:10,display:'grid',gap:5,fontSize:13}}>{employees.length===0?<TraceEmptyState message="Belum ada karyawan."/>:employees.map(e=><div key={String(e.id)} style={{display:'grid',gridTemplateColumns:'1.3fr 1fr 1fr 1fr',gap:8,padding:'5px 0',borderTop:'1px solid rgba(23,23,23,.06)'}}><span>{String(e.name)}</span><span className="trace-muted">{String(e.position??'—')}</span><span className="trace-muted">{String(e.employment_type)}</span><span>{money(Number(e.base_salary||0))}</span></div>)}</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr auto',gap:8,marginTop:12}}>
           <input placeholder="Kode (opsional)" value={empForm.code} onChange={e=>setEmpForm({...empForm,code:e.target.value})} style={inputStyle}/>
           <input placeholder="Nama" value={empForm.name} onChange={e=>setEmpForm({...empForm,name:e.target.value})} style={inputStyle}/>
@@ -65,10 +70,10 @@ export function PayrollView(){
           <input type="number" placeholder={empForm.type==='harian'?'Rate/jam':'Gaji pokok'} value={empForm.type==='harian'?empForm.hourly:empForm.salary} onChange={e=>setEmpForm(empForm.type==='harian'?{...empForm,hourly:e.target.value}:{...empForm,salary:e.target.value})} style={inputStyle}/>
           <button disabled={busy||!empForm.name} onClick={createEmployee} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>+ Tambah</button>
         </div>
-      </div>
-      <div className="trace-card"><strong>Buka Payroll Run</strong><div style={{display:'grid',gridTemplateColumns:'1fr 2fr auto',gap:8,marginTop:10}}><input type="month" value={openForm.period} onChange={e=>setOpenForm({...openForm,period:e.target.value})} style={inputStyle}/><input placeholder="Catatan (opsional)" value={openForm.notes} onChange={e=>setOpenForm({...openForm,notes:e.target.value})} style={inputStyle}/><button disabled={busy} onClick={openRun} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>Buka Run</button></div></div>
-      <div className="trace-card"><strong>Riwayat Payroll Run</strong><div style={{marginTop:10,display:'grid',gap:5}}>{runs.length===0?<div className="trace-muted" style={{fontSize:12}}>Belum ada payroll run.</div>:runs.map(r=><div key={String(r.id)} onClick={()=>void loadLines(String(r.id))} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,cursor:'pointer',background:runId===String(r.id)?'#fafaf8':'transparent'}}><span>{String(r.period)}</span><span className="trace-muted" style={{textTransform:'uppercase',fontSize:11}}>{String(r.status)}</span><ArrowRight size={14} className="trace-muted"/></div>)}</div></div>
-      {selectedRun&&<div className="trace-card">
+      </TraceCard>
+      <TraceCard><strong>Buka Payroll Run</strong><div style={{display:'grid',gridTemplateColumns:'1fr 2fr auto',gap:8,marginTop:10}}><input type="month" value={openForm.period} onChange={e=>setOpenForm({...openForm,period:e.target.value})} style={inputStyle}/><input placeholder="Catatan (opsional)" value={openForm.notes} onChange={e=>setOpenForm({...openForm,notes:e.target.value})} style={inputStyle}/><button disabled={busy} onClick={openRun} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>Buka Run</button></div></TraceCard>
+      <TraceCard><strong>Riwayat Payroll Run</strong><div style={{marginTop:10,display:'grid',gap:5}}>{runs.length===0?<TraceEmptyState message="Belum ada payroll run."/>:runs.map(r=><div key={String(r.id)} onClick={()=>void loadLines(String(r.id))} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:8,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,cursor:'pointer',background:runId===String(r.id)?'#fafaf8':'transparent'}}><span>{String(r.period)}</span><span className="trace-muted" style={{textTransform:'uppercase',fontSize:11}}>{String(r.status)}</span><ArrowRight size={14} className="trace-muted"/></div>)}</div></TraceCard>
+      {selectedRun&&<TraceCard>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>Run {String(selectedRun.period)} · {String(selectedRun.status).toUpperCase()}</strong>
           <div style={{display:'flex',gap:8}}>
             {String(selectedRun.status)==='draft'&&<button onClick={()=>void transition('reviewing')} disabled={busy} style={{border:'1px solid rgba(23,23,23,.14)',borderRadius:9,padding:'7px 11px',background:'#fff',fontWeight:700}}>Ajukan Review</button>}
@@ -115,7 +120,7 @@ export function PayrollView(){
             <button disabled={busy||!postForm.labor||!postForm.bpjs||!postForm.tax||!postForm.cash} onClick={postRun} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>Posting</button>
           </div>
         </div>}
-      </div>}
+      </TraceCard>}
     </>}
   </div>;
 }

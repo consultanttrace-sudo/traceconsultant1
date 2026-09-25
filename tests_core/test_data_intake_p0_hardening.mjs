@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { readReactSource } from './_react_source.mjs';
 const intake=fs.readFileSync('src/core/dataIntake.ts','utf8');
 const adapter=fs.readFileSync('src/core/fileIntakeAdapters.ts','utf8');
 const endpoint=fs.readFileSync('netlify/functions/data-intake-import.js','utf8');
 const migration=fs.readFileSync('supabase/migrations/034_data_intake_p0_hardening.sql','utf8');
-const main=fs.readFileSync('src/app/main.tsx','utf8');
+const main=readReactSource();
 assert.match(intake,/periodStart/);
 assert.match(intake,/periodEnd/);
 assert.match(intake,/periodCount/);

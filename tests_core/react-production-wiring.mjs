@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-const main=fs.readFileSync('src/app/main.tsx','utf8');
+import { readReactSource } from './_react_source.mjs';
+const main=readReactSource();
 const fn=fs.readFileSync('netlify/functions/trace-data.js','utf8');
 const intake=fs.readFileSync('netlify/functions/data-intake-import.js','utf8');
 const checks=[

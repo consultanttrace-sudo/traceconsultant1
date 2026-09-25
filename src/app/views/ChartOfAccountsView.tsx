@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { defaultChartOfAccounts, type AccountWithSubType } from '../../core/chartOfAccounts';
 import { requireReactSession, loadTraceCollections, asArray, useTraceCollections, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { TracePageHeader, TraceCard } from '../components/TraceUI';
 
 const SUB_TYPE_LABEL: Record<AccountWithSubType['subType'], string> = {
   aset_lancar: 'Aset Lancar',
@@ -16,7 +18,7 @@ const SUB_TYPE_LABEL: Record<AccountWithSubType['subType'], string> = {
 export function ChartOfAccountsView(){
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
-  const [clientId,setClientId]=useState('');
+  const [clientId,setClientId]=useClientScope();
   const [existingAccounts,setExistingAccounts]=useState<Array<Record<string,unknown>>>([]);
   const [loading,setLoading]=useState(false);
   const [seeding,setSeeding]=useState(false);
@@ -55,22 +57,18 @@ export function ChartOfAccountsView(){
   };
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}>
-      <div className="trace-muted" style={{fontSize:12}}>AKUNTANSI · CHART OF ACCOUNTS STANDAR</div>
-      <h1 style={{margin:'7px 0 5px',fontSize:30}}>Daftar akun standar F&amp;B, siap pakai.</h1>
-      <div className="trace-muted">Diambil langsung dari `defaultChartOfAccounts()` di `src/core/chartOfAccounts.ts` — {previewRows.length||28} akun dengan kode, tipe, dan sub-tipe untuk Neraca. Tombol seed hanya aktif kalau klien terpilih belum punya akun sama sekali di tabel yang sama dipakai tab Akuntansi; kalau sudah ada, seed ditolak supaya tidak menimpa data yang sudah dipakai.</div>
-    </div>
+    <TracePageHeader kicker="AKUNTANSI · CHART OF ACCOUNTS STANDAR" title="Daftar akun standar F&B, siap pakai." description={<>Diambil langsung dari `defaultChartOfAccounts()` di `src/core/chartOfAccounts.ts` — {previewRows.length||28} akun dengan kode, tipe, dan sub-tipe untuk Neraca. Tombol seed hanya aktif kalau klien terpilih belum punya akun sama sekali di tabel yang sama dipakai tab Akuntansi; kalau sudah ada, seed ditolak supaya tidak menimpa data yang sudah dipakai.</>} />
 
-    <div className="trace-card">
+    <TraceCard>
       <label>Klien<select value={clientId} onChange={e=>setClientId(e.target.value)} style={inputStyle}>
         <option value="">Pilih klien</option>
         {clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}
       </select></label>
       {loading&&<div className="trace-muted" style={{marginTop:8}}>Memuat…</div>}
       {msg&&<div className="trace-muted" style={{marginTop:8}}>{msg}</div>}
-    </div>
+    </TraceCard>
 
-    {clientId&&<div className="trace-card">
+    {clientId&&<TraceCard>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
         <strong>Chart of Accounts standar (preview)</strong>
         <button
@@ -97,15 +95,15 @@ export function ChartOfAccountsView(){
           </tr>)}</tbody>
         </table>
       </div>
-    </div>}
+    </TraceCard>}
 
-    {clientId&&existingAccounts.length>0&&<div className="trace-card">
+    {clientId&&existingAccounts.length>0&&<TraceCard>
       <strong>Akun tersimpan untuk klien ini (dari tabel yang sama dipakai Akuntansi)</strong>
       <div style={{marginTop:10,display:'grid',gap:5,fontSize:13}}>
         {[...existingAccounts].sort((x,y)=>String(x.code).localeCompare(String(y.code))).map(a=><div key={String(a.id)} style={{display:'grid',gridTemplateColumns:'70px 1fr 100px',gap:10,padding:'6px 0',borderTop:'1px solid rgba(23,23,23,.07)'}}>
           <span className="trace-muted">{String(a.code)}</span><span>{String(a.name)}</span><span className="trace-muted" style={{textTransform:'capitalize'}}>{String(a.account_type)}</span>
         </div>)}
       </div>
-    </div>}
+    </TraceCard>}
   </div>;
 }

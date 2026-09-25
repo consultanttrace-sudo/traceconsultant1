@@ -971,6 +971,49 @@ function potentialLevel(score){
   return {label:'Low', cls:'score-low'};
 }
 
+// ADDITIVE SIGNAL — mirrors src/core/acquisition.ts:qualifyLead exactly (same weights/
+// thresholds). This sub-app has no build step importing that TS module, so the logic is
+// duplicated here on purpose; keep the two in sync by hand if either changes.
+// Deliberately independent of computeOverallScore(): it never reads lead.analysis and never
+// writes lead.fit_score/fit_status/priority/acquisition_stage, so it cannot change sorting,
+// CSV export, or pipeline stage — it only adds a second, always-available reading for the
+// detail panel (useful even before AI analysis has run).
+function computeCoreFitSignal(lead){
+  const has = v => v !== null && v !== undefined && v !== '' && v !== 'Unknown' && v !== 'Not Found';
+  const reasons = [];
+  let score = 0;
+
+  const category = String(lead.category || '').toLowerCase();
+  const isTargetFnb = /coffee|cafe|café|restaurant|resto|bakery|dessert|food|kuliner|kedai/.test(category);
+  if (isTargetFnb) { score += 20; reasons.push('Kategori bisnis sesuai target F&B consulting.'); }
+  else if (has(lead.category)) reasons.push('Kategori tersedia, tetapi kecocokan F&B belum terkonfirmasi.');
+
+  const outletCount = typeof lead.outlet_count === 'number' ? lead.outlet_count : null;
+  if (outletCount !== null){
+    if (outletCount >= 5) { score += 30; reasons.push('Multi-outlet skala tinggi memberi sinyal kebutuhan kontrol dan standardisasi.'); }
+    else if (outletCount >= 2) { score += 20; reasons.push('Multi-outlet memberi sinyal kebutuhan scaling dan operational control.'); }
+    else if (outletCount === 1) { score += 5; reasons.push('Single outlet memiliki potensi consulting, tetapi kompleksitas operasional belum tinggi.'); }
+  }
+
+  const reviewCount = typeof lead.review_count === 'number' ? lead.review_count : null;
+  if (reviewCount !== null){
+    if (reviewCount >= 1000) { score += 15; reasons.push('Traction publik tinggi memberi basis untuk menguji growth/operations opportunity.'); }
+    else if (reviewCount >= 300) { score += 10; reasons.push('Traction publik cukup untuk contextual business analysis.'); }
+    else if (reviewCount >= 50) { score += 5; reasons.push('Ada traction publik yang dapat digunakan sebagai evidence awal.'); }
+  }
+
+  const digitalSignals = Number(has(lead.website)) + Number(has(lead.instagram));
+  if (digitalSignals === 2) { score += 15; reasons.push('Website dan Instagram tersedia untuk menguji digital-to-business opportunity.'); }
+  else if (digitalSignals === 1) { score += 8; reasons.push('Satu digital presence tersedia untuk analisis lanjutan.'); }
+
+  if (has(lead.phone)) { score += 5; reasons.push('Kontak tersedia sehingga lead dapat ditindaklanjuti.'); }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  if (!reasons.length) reasons.push('Evidence publik masih terbatas; sinyal ini belum dapat dihitung.');
+  const status = score >= 75 ? 'high' : score >= 50 ? 'medium' : score > 0 ? 'low' : 'insufficient_data';
+  return { score, status, reasons };
+}
+
 function freshness(lastChecked){
   if (!lastChecked) return {icon:'🔴', label:'Stale'};
   const days = (Date.now() - new Date(lastChecked).getTime()) / 86400000;
@@ -2154,6 +2197,8 @@ function renderDetail(lead){
   const a = lead.analysis;
   const dq = computeDataQuality(lead);
   const lvl = potentialLevel(lead.lead_score);
+  const coreSignal = computeCoreFitSignal(lead);
+  const coreSignalCls = coreSignal.status==='high'?'score-high':coreSignal.status==='medium'?'score-mid':coreSignal.status==='low'?'score-low':'score-none';
   const lastDM = lead.outreach.length ? lead.outreach[lead.outreach.length-1] : null;
 
   let html = `
@@ -2177,6 +2222,12 @@ function renderDetail(lead){
         <div class="kv"><span class="kv-k">Data Quality</span><span class="kv-v">${dq}%</span></div>
         <div class="kv"><span class="kv-k">Opening Hours</span><span class="kv-v">${fmt(lead.opening_hours)}</span></div>
         <div class="kv"><span class="kv-k">Social Verified</span><span class="kv-v">${lead.social_verified ? 'Yes' : 'No'}</span></div>
+      </div>
+
+      <div class="detail-block">
+        <h4>Sinyal Fit F&amp;B (Rule-Based) <span class="score-badge ${coreSignalCls}" style="float:right;">${coreSignal.score}</span></h4>
+        <div class="ai-disclaimer">Sinyal tambahan yang dihitung langsung dari data lead (kategori, outlet, review, presence digital, kontak) — independen dari Lead Analysis AI di sebelah kanan, dan selalu tersedia walau lead belum dianalisis AI. Sinyal ini tidak mengubah fit_score/priority/urutan yang sudah berjalan; disajikan sebagai pembanding saja.</div>
+        <div style="margin-top:8px;font-size:12px;line-height:1.7;">${coreSignal.reasons.map(r=>`• ${escapeHtml(r)}`).join('<br>')}</div>
       </div>
 
       <div class="detail-block">

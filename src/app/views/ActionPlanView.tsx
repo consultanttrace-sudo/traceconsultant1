@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, Target } from 'lucide-react';
 import { requireReactSession, asArray, useTraceCollections, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { useOutletScope } from '../scopeStore';
+import { OutletSelector } from '../components/ScopeSelectors';
+import { TracePageHeader, TraceCard, TraceEmptyState } from '../components/TraceUI';
 
 export function ActionPlanView(){
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
-  const [clientId,setClientId]=useState(''); const [outletId,setOutletId]=useState('');
+  const [clientId,setClientId]=useClientScope(); const [outletId]=useOutletScope();
   const [plans,setPlans]=useState<Array<Record<string,unknown>>>([]);
   const [planId,setPlanId]=useState('');
   const [items,setItems]=useState<Array<Record<string,unknown>>>([]);
@@ -56,20 +60,20 @@ export function ActionPlanView(){
   const selectedPlan=plans.find(p=>String(p.id)===planId);
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>ACTION PLAN</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Rencana aksi P0-P3 dengan validasi server, bukan sekadar to-do list.</h1><div className="trace-muted">Item prioritas P0 wajib punya target beda dari baseline. Item tidak bisa ditandai "completed" tanpa evidence — server yang menolak kalau dilanggar.</div></div>
-    <div className="trace-card" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+    <TracePageHeader kicker="ACTION PLAN" title="Rencana aksi P0-P3 dengan validasi server, bukan sekadar to-do list." description={'Item prioritas P0 wajib punya target beda dari baseline. Item tidak bisa ditandai "completed" tanpa evidence — server yang menolak kalau dilanggar.'} />
+    <TraceCard style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
       <label>Klien<select value={clientId} onChange={e=>{setClientId(e.target.value);setPlanId('');setItems([]);}} style={inputStyle}><option value="">Pilih klien</option>{clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}</select></label>
-      <label>Outlet (opsional)<input value={outletId} onChange={e=>setOutletId(e.target.value)} style={inputStyle}/></label>
-    </div>
+      <OutletSelector clientId={clientId}/>
+    </TraceCard>
     {msg&&<div className="trace-muted" style={{fontSize:12}}>{msg}</div>}
     {clientId&&<>
-      <div className="trace-card"><strong>Buat Action Plan Baru</strong><div style={{display:'grid',gridTemplateColumns:'3fr auto',gap:8,marginTop:10}}><input placeholder="Objective / tujuan rencana" value={objective} onChange={e=>setObjective(e.target.value)} style={inputStyle}/><button disabled={busy||!objective} onClick={createPlan} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>+ Buat Plan</button></div></div>
-      <div className="trace-card"><strong>Daftar Action Plan</strong><div style={{marginTop:10,display:'grid',gap:5}}>{plans.length===0?<div className="trace-muted" style={{fontSize:12}}>Belum ada action plan.</div>:plans.map(p=><div key={String(p.id)} onClick={()=>void loadItems(String(p.id))} style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,cursor:'pointer',background:planId===String(p.id)?'#fafaf8':'transparent'}}><span>{String(p.objective)}</span><ArrowRight size={14} className="trace-muted"/></div>)}</div></div>
+      <TraceCard><strong>Buat Action Plan Baru</strong><div style={{display:'grid',gridTemplateColumns:'3fr auto',gap:8,marginTop:10}}><input placeholder="Objective / tujuan rencana" value={objective} onChange={e=>setObjective(e.target.value)} style={inputStyle}/><button disabled={busy||!objective} onClick={createPlan} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>+ Buat Plan</button></div></TraceCard>
+      <TraceCard><strong>Daftar Action Plan</strong><div style={{marginTop:10,display:'grid',gap:5}}>{plans.length===0?<TraceEmptyState message="Belum ada action plan."/>:plans.map(p=><div key={String(p.id)} onClick={()=>void loadItems(String(p.id))} style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,cursor:'pointer',background:planId===String(p.id)?'#fafaf8':'transparent'}}><span>{String(p.objective)}</span><ArrowRight size={14} className="trace-muted"/></div>)}</div></TraceCard>
 
-      {selectedPlan&&<div className="trace-card">
+      {selectedPlan&&<TraceCard>
         <strong>{String(selectedPlan.objective)}</strong>
         {summary&&<div className="trace-muted" style={{fontSize:12,marginTop:6}}>{String(summary.completed)}/{String(summary.total)} selesai ({String(summary.completion_pct)}%) · eksekusi {String(summary.execution_pct)}% · {String(summary.blocked)} terblokir · {String(summary.overdue)} lewat tenggat</div>}
-        <div style={{marginTop:12,display:'grid',gap:8}}>{items.length===0?<div className="trace-muted" style={{fontSize:12}}>Belum ada item.</div>:items.map(it=><div key={String(it.id)} onClick={()=>editItem(it)} style={{padding:12,border:'1px solid rgba(23,23,23,.08)',borderRadius:11,cursor:'pointer'}}>
+        <div style={{marginTop:12,display:'grid',gap:8}}>{items.length===0?<TraceEmptyState message="Belum ada item."/>:items.map(it=><div key={String(it.id)} onClick={()=>editItem(it)} style={{padding:12,border:'1px solid rgba(23,23,23,.08)',borderRadius:11,cursor:'pointer'}}>
           <div style={{display:'flex',justifyContent:'space-between'}}><span style={{fontWeight:700}}><span style={{color:priorityColor(String(it.priority)),marginRight:6}}>{String(it.priority)}</span>{String(it.title)}</span><span className="trace-muted" style={{fontSize:11,textTransform:'uppercase'}}>{String(it.status)}</span></div>
           <div className="trace-muted" style={{fontSize:12,marginTop:3}}>PIC: {String(it.owner)} · Ukuran: {String(it.measure)}{it.due_date?` · Tenggat: ${String(it.due_date)}`:''}</div>
           {(it.baseline!=null||it.target!=null)&&<div className="trace-muted" style={{fontSize:11,marginTop:2}}>Baseline {it.baseline==null?'—':String(it.baseline)} → Target {it.target==null?'—':String(it.target)}</div>}
@@ -94,7 +98,7 @@ export function ActionPlanView(){
             {itemForm.id&&<button onClick={()=>setItemForm(emptyItem)} style={{border:'1px solid rgba(23,23,23,.14)',borderRadius:9,padding:'9px 14px',background:'#fff',fontWeight:700}}>Batal Edit</button>}
           </div>
         </div>
-      </div>}
+      </TraceCard>}
     </>}
   </div>;
 }

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
-const source = fs.readFileSync('src/app/main.tsx', 'utf8');
+import { readReactSource } from './_react_source.mjs';
+const source = readReactSource();
 const forbidden = [
   "auditDiff({status:'draft',owner:'unknown'},{status:'approved',owner:'leader'})",
   "diagnoseBusiness({current:{period:'—'",

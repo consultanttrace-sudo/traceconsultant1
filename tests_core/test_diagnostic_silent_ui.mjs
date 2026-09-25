@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-const ui=fs.readFileSync('src/app/main.tsx','utf8');
+const ui=fs.readFileSync('src/app/views/SettingsCenter.tsx','utf8');
 assert.match(ui,/Diagnostic belum selesai\./);
 assert.match(ui,/<details>/);
 assert.ok(!ui.includes('setError(`Diagnostic server returned'));

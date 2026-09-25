@@ -4,9 +4,10 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { summarizeCollaboration, type CollaborationTask, type CollaborationStatus } from '../../core/collaboration';
 import { type SOP } from '../../core/sop';
 import { requireReactSession, asArray, useTraceCollections, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
 
 export function BusinessTwinView(){
-  const [clientId,setClientId]=useState('');
+  const [clientId,setClientId]=useClientScope();
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
   const live=useTraceCollections([],clientId?['tasks']:[],clientId);

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import { readReactSource } from './_react_source.mjs';
 const api=fs.readFileSync('netlify/functions/trace-data.js','utf8');
-const main=fs.readFileSync('src/app/main.tsx','utf8');
+const main=readReactSource();
 const sql=fs.readFileSync('supabase/migrations/031_trace_kv_access_boundary_v72.sql','utf8');
 assert.match(api,/trace_read_global_kv/);
 assert.doesNotMatch(api,/\/rest\/v1\/trace_kv\?key=eq\./);

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import { readReactSource } from './_react_source.mjs';
 const api=fs.readFileSync('netlify/functions/trace-data.js','utf8');
 const m=fs.readFileSync('supabase/migrations/027_client_isolation_v72.sql','utf8');
 const a=fs.readFileSync('supabase/migrations/029_client_scope_accounting_read_v72.sql','utf8');
@@ -14,7 +15,7 @@ const kv=fs.readFileSync('supabase/migrations/031_trace_kv_access_boundary_v72.s
 assert.match(kv,/trace_read_global_kv/); assert.match(kv,/trace_upsert_global_kv/); assert.match(kv,/revoke all on table public\.trace_kv from anon, authenticated/);
 assert.match(a,/trace_accounts/);
 assert.doesNotMatch(a,/access_token_ciphertext/); assert.doesNotMatch(a,/refresh_token_ciphertext/);
-const react=fs.readFileSync('src/app/main.tsx','utf8');
+const react=readReactSource();
 assert.match(react,/ACQUISITION · INTERNAL/);
 assert.doesNotMatch(react,/localStorage mandiri \(belum tersambung ke Supabase\/data klien TRACE\)/);
 assert.match(react,/Klien \/ Scope<select/);

@@ -4,6 +4,51 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { createClient } from '@supabase/supabase-js';
 import { requireReactSession, asArray, useTraceCollections, inputStyle } from './_shared';
 
+export type TraceOutletRecord={id:string;client_id:string;name:string;notes:string|null;created_at:string;updated_at:string};
+function isOutletRecord(x:unknown):x is TraceOutletRecord{return typeof x==='object'&&x!==null&&typeof (x as Record<string,unknown>).id==='string'&&typeof (x as Record<string,unknown>).client_id==='string';}
+/** Add/remove outlets for one client (migration 054 — trace_outlets). Feeds the "saran outlet" datalist in ScopeSelectors.tsx everywhere else. */
+function OutletsSection({clientId,outlets,onAdded,onDeleted}:{clientId:string;outlets:TraceOutletRecord[];onAdded:(o:TraceOutletRecord)=>void;onDeleted:(id:string)=>void}){
+  const [name,setName]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  const [deletingId,setDeletingId]=useState('');
+  const add=async()=>{
+    if(!name.trim()||busy)return;
+    setBusy(true);setError('');
+    try{
+      const supabase=await requireReactSession();
+      const {data,error:e}=await supabase.rpc('trace_create_outlet',{p_client_id:clientId,p_name:name.trim(),p_notes:null});
+      if(e)throw e;
+      if(data)onAdded(data as TraceOutletRecord);
+      setName('');
+    }catch(err){setError(err instanceof Error?err.message:'Outlet gagal disimpan.');}
+    finally{setBusy(false);}
+  };
+  const remove=async(id:string)=>{
+    setDeletingId(id);setError('');
+    try{
+      const supabase=await requireReactSession();
+      const {error:e}=await supabase.rpc('trace_delete_outlet',{p_id:id});
+      if(e)throw e;
+      onDeleted(id);
+    }catch(err){setError(err instanceof Error?err.message:'Outlet gagal dihapus.');}
+    finally{setDeletingId('');}
+  };
+  return <div style={{marginTop:14,paddingTop:14,borderTop:'1px solid rgba(23,23,23,.08)'}}>
+    <div className="trace-muted" style={{fontSize:11,marginBottom:8}}>OUTLET ({outlets.length}) — jadi saran di selector outlet setiap modul</div>
+    {outlets.length===0&&<div className="trace-muted" style={{fontSize:12,marginBottom:8}}>Belum ada outlet untuk klien ini.</div>}
+    <div style={{display:'grid',gap:6,marginBottom:8}}>
+      {outlets.map(o=><div key={o.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:13}}>
+        <span>{o.name}</span>
+        <button className="trace-icon-btn" style={{color:'#b91c1c'}} disabled={deletingId===o.id} onClick={()=>remove(o.id)}><Trash2 size={13}/></button>
+      </div>)}
+    </div>
+    <div style={{display:'flex',gap:8}}>
+      <input value={name} onChange={e=>setName(e.target.value)} placeholder="mis. Kemang" style={{...inputStyle,flex:1}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();add();}}}/>
+      <button className="trace-button" disabled={busy||!name.trim()} onClick={add}>{busy?'…':'+ Outlet'}</button>
+    </div>
+    {error&&<div className="trace-alert" style={{marginTop:8}}>{error}</div>}
+  </div>;
+}
+
 export type TraceClientRecord={id:string;name:string;package:string;status:string;pic_name:string|null;drive_folder_link:string|null;notes:string|null;created_at:string;updated_at:string};
 export const CLIENT_PACKAGES=['Starter','Professional','Professional 1 Tahun'] as const;
 export const CLIENT_STATUSES=['Aktif','Trial','Nonaktif'] as const;
@@ -21,13 +66,17 @@ export function ClientFormFields({form,setForm}:{form:ReturnType<typeof emptyCli
   </div>;
 }
 export function ClientsView(){
-  const live=useTraceCollections([],['clients']);
+  const live=useTraceCollections([],['clients','outlets']);
   const clients=asArray(live.data.clients).filter((x):x is TraceClientRecord=>typeof x==='object'&&x!==null&&typeof (x as Record<string,unknown>).id==='string');
+  const outlets=asArray(live.data.outlets).filter(isOutletRecord);
   const [query,setQuery]=useState('');
   const [reloadTick,setReloadTick]=useState(0);
   const [localClients,setLocalClients]=useState<TraceClientRecord[]|null>(null);
+  const [localOutlets,setLocalOutlets]=useState<TraceOutletRecord[]|null>(null);
   useEffect(()=>{if(!live.loading)setLocalClients(clients);},[live.loading,live.data.clients]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(!live.loading)setLocalOutlets(outlets);},[live.loading,live.data.outlets]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows=localClients??clients;
+  const outletRows=localOutlets??outlets;
   const filtered=rows.filter(c=>JSON.stringify(c).toLowerCase().includes(query.toLowerCase()));
   const [createOpen,setCreateOpen]=useState(false);
   const [createForm,setCreateForm]=useState(emptyClientForm());
@@ -58,11 +107,15 @@ export function ClientsView(){
       </Dialog.Root>
     </div>
     <div className="trace-card"><input placeholder="Cari klien…" value={query} onChange={e=>setQuery(e.target.value)} style={{maxWidth:320}}/>
-      {live.loading&&!localClients?<div className="trace-muted" style={{marginTop:12}}>Memuat…</div>:live.error&&!localClients?<div className="trace-muted" style={{marginTop:12}}>{live.error}</div>:filtered.length===0?<div className="trace-muted" style={{marginTop:12}}>Tidak ada klien yang cocok.</div>:<div style={{marginTop:14,display:'grid',gap:8}}>{filtered.map(c=><ClientRow key={c.id} client={c} onUpdated={updated=>setLocalClients(prev=>(prev??rows).map(x=>x.id===updated.id?updated:x))} onDeleted={id=>setLocalClients(prev=>(prev??rows).filter(x=>x.id!==id))}/>)}</div>}
+      {live.loading&&!localClients?<div className="trace-muted" style={{marginTop:12}}>Memuat…</div>:live.error&&!localClients?<div className="trace-muted" style={{marginTop:12}}>{live.error}</div>:filtered.length===0?<div className="trace-muted" style={{marginTop:12}}>Tidak ada klien yang cocok.</div>:<div style={{marginTop:14,display:'grid',gap:8}}>{filtered.map(c=><ClientRow key={c.id} client={c}
+        outlets={outletRows.filter(o=>o.client_id===c.id)}
+        onOutletAdded={o=>setLocalOutlets(prev=>[...(prev??outletRows),o])}
+        onOutletDeleted={id=>setLocalOutlets(prev=>(prev??outletRows).filter(x=>x.id!==id))}
+        onUpdated={updated=>setLocalClients(prev=>(prev??rows).map(x=>x.id===updated.id?updated:x))} onDeleted={id=>setLocalClients(prev=>(prev??rows).filter(x=>x.id!==id))}/>)}</div>}
     </div>
   </div>
 }
-export function ClientRow({client,onUpdated,onDeleted}:{client:TraceClientRecord;onUpdated:(c:TraceClientRecord)=>void;onDeleted:(id:string)=>void}){
+export function ClientRow({client,outlets,onOutletAdded,onOutletDeleted,onUpdated,onDeleted}:{client:TraceClientRecord;outlets:TraceOutletRecord[];onOutletAdded:(o:TraceOutletRecord)=>void;onOutletDeleted:(id:string)=>void;onUpdated:(c:TraceClientRecord)=>void;onDeleted:(id:string)=>void}){
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState(()=>({name:client.name,package:client.package,status:client.status,pic_name:client.pic_name??'',drive_folder_link:client.drive_folder_link??'',notes:client.notes??''}));
   const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [confirmDelete,setConfirmDelete]=useState(false);
@@ -94,6 +147,7 @@ export function ClientRow({client,onUpdated,onDeleted}:{client:TraceClientRecord
     <Dialog.Portal><Dialog.Overlay className="trace-dialog-overlay"/><Dialog.Content className="trace-dialog-content"><Dialog.Close className="trace-icon-btn trace-dialog-close"><X size={16}/></Dialog.Close><Dialog.Title asChild><h2>{client.name}</h2></Dialog.Title>
       <ClientFormFields form={form} setForm={setForm}/>
       {error&&<div className="trace-alert" style={{marginTop:10}}>{error}</div>}
+      <OutletsSection clientId={client.id} outlets={outlets} onAdded={onOutletAdded} onDeleted={onOutletDeleted}/>
       <div style={{display:'flex',gap:8,marginTop:14,justifyContent:'space-between'}}>
         {confirmDelete?<div style={{display:'flex',gap:8,alignItems:'center'}}><span className="trace-muted" style={{fontSize:12}}>Yakin hapus klien ini?</span><button className="trace-button" style={{background:'#b91c1c'}} disabled={busy} onClick={remove}>{busy?'Menghapus…':'Ya, hapus'}</button><button className="trace-icon-btn" onClick={()=>setConfirmDelete(false)}>Batal</button></div>:<button className="trace-icon-btn" style={{color:'#b91c1c'}} onClick={()=>setConfirmDelete(true)}><Trash2 size={14}/></button>}
         <button className="trace-button" disabled={busy||!form.name.trim()} onClick={save}>{busy?'Menyimpan…':'Simpan Perubahan'}</button>

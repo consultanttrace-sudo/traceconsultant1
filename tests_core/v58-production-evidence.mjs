@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-const main=fs.readFileSync('src/app/main.tsx','utf8');
+const main=fs.readFileSync('src/app/views/DataIntake.tsx','utf8'); // main.tsx dipecah 2026-09-17; alur Data Intake sekarang di sini
 const endpoint=fs.readFileSync('netlify/functions/data-intake-import.js','utf8');
 const release=fs.readFileSync('TRACE_RELEASE_VERSION.txt','utf8').trim();
 const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));

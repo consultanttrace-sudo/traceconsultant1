@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer } from 'recharts';
 import { buildSalesDashboard, type SaleLine } from '../../core/salesAnalytics';
 import { fmtFieldAmount, getReactSupabase, loadTraceCollections, asArray, useTraceCollections, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { TracePageHeader, TraceCard } from '../components/TraceUI';
 
 export const CHANNEL_OPTIONS:Array<[SaleLine['channel'],string]>=[['dine_in','Dine-in'],['gofood','GoFood'],['grabfood','GrabFood'],['shopeefood','ShopeeFood'],['other','Lainnya']];
 export type ProductDraft={id:string|null;version:number|null;clientId:string;outletId:string;productName:string;menuCategory:string;price:number|string};
@@ -15,7 +17,7 @@ export function SalesView(){
   const [sales,setSales]=useState<Array<Record<string,unknown>>>([]);
   const [loading,setLoading]=useState(true);
   const [loadError,setLoadError]=useState('');
-  const [clientId,setClientId]=useState('');
+  const [clientId,setClientId]=useClientScope();
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
   const [productDraft,setProductDraft]=useState<ProductDraft>(EMPTY_PRODUCT_DRAFT);
@@ -76,16 +78,16 @@ export function SalesView(){
   const dashboard=buildSalesDashboard(lines);
 
   const TabBtn=({id,label}:{id:typeof tab;label:string})=><button onClick={()=>setTab(id)} style={{border:0,borderBottom:tab===id?'2px solid #171717':'2px solid transparent',background:'none',padding:'8px 4px',fontWeight:tab===id?700:500,cursor:'pointer'}}>{label}</button>;
-  const Panel=({title,items}:{title:string;items:BreakdownItemLike[]})=><div className="trace-card"><strong style={{fontSize:13}}>{title}</strong>{items.length===0?<div className="trace-muted" style={{fontSize:12,marginTop:8}}>Belum ada data.</div>:<div style={{marginTop:10,display:'grid',gap:5}}>{items.map((it,i)=><div key={it.label} style={{display:'flex',justifyContent:'space-between',fontSize:12}}><span>{i+1}. {it.label}</span><strong>{it.sharePct}%</strong></div>)}</div>}</div>;
+  const Panel=({title,items}:{title:string;items:BreakdownItemLike[]})=><TraceCard><strong style={{fontSize:13}}>{title}</strong>{items.length===0?<div className="trace-muted" style={{fontSize:12,marginTop:8}}>Belum ada data.</div>:<div style={{marginTop:10,display:'grid',gap:5}}>{items.map((it,i)=><div key={it.label} style={{display:'flex',justifyContent:'space-between',fontSize:12}}><span>{i+1}. {it.label}</span><strong>{it.sharePct}%</strong></div>)}</div>}</TraceCard>;
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>PENJUALAN & DASHBOARD</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Katalog produk, transaksi, dan analitik penjualan</h1><div className="trace-muted">Dashboard di bawah dihitung langsung dari transaksi yang tercatat — tidak ada angka contoh. Belum ada fitur target/pembanding tahun lalu; itu perlu fitur "target periode" terpisah yang belum dibangun.</div></div>
-    <div className="trace-card"><label>Klien / Scope<input value={clientId} onChange={e=>setClientId(e.target.value)} placeholder="mis. nama-klien (harus sama dengan yang dipakai di Keuangan)" style={inputStyle}/></label></div>
+    <TracePageHeader kicker="PENJUALAN & DASHBOARD" title="Katalog produk, transaksi, dan analitik penjualan" description={'Dashboard di bawah dihitung langsung dari transaksi yang tercatat — tidak ada angka contoh. Belum ada fitur target/pembanding tahun lalu; itu perlu fitur "target periode" terpisah yang belum dibangun.'} />
+    <TraceCard><label>Klien / Scope<input value={clientId} onChange={e=>setClientId(e.target.value)} placeholder="mis. nama-klien (harus sama dengan yang dipakai di Keuangan)" style={inputStyle}/></label></TraceCard>
     <div style={{display:'flex',gap:18,borderBottom:'1px solid rgba(23,23,23,.08)'}}><TabBtn id="dashboard" label="Dashboard"/><TabBtn id="produk" label="Produk"/><TabBtn id="transaksi" label="Transaksi"/></div>
     {message&&<div className="trace-muted" style={{fontSize:12}}>{message}</div>}
-    {!clientId.trim()&&<div className="trace-card"><div className="trace-muted">Isi Klien/Scope dulu di atas untuk melihat atau mencatat data.</div></div>}
+    {!clientId.trim()&&<TraceCard><div className="trace-muted">Isi Klien/Scope dulu di atas untuk melihat atau mencatat data.</div></TraceCard>}
 
-    {clientId.trim()&&tab==='produk'&&<div className="trace-card">
+    {clientId.trim()&&tab==='produk'&&<TraceCard>
       <strong>Tambah / edit produk</strong>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:10}}>
         <label>Nama Produk<input value={productDraft.productName} onChange={e=>setProductDraft({...productDraft,productName:e.target.value})} style={inputStyle}/></label>
@@ -95,9 +97,9 @@ export function SalesView(){
       </div>
       <button onClick={saveProduct} disabled={saving} style={{marginTop:12,border:0,borderRadius:9,padding:'10px 16px',background:'#171717',color:'#fff',fontWeight:700,cursor:'pointer'}}>{productDraft.id?'Update Produk':'Simpan Produk'}</button>
       <div style={{marginTop:16,display:'grid',gap:6}}>{loading?<div className="trace-muted">Memuat…</div>:scopedProducts.length===0?<div className="trace-muted">Belum ada produk untuk klien ini.</div>:scopedProducts.map(p=><div key={String(p.id)} onClick={()=>setProductDraft({id:String(p.id),version:Number(p.version),clientId,outletId:String(p.outlet_id??''),productName:String(p.product_name),menuCategory:String(p.menu_category??''),price:Number(p.price)})} style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.07)',fontSize:13,cursor:'pointer'}}><span>{String(p.product_name)}</span><span className="trace-muted">{String(p.menu_category??'—')}</span><strong>{fmtFieldAmount(p.price)}</strong></div>)}</div>
-    </div>}
+    </TraceCard>}
 
-    {clientId.trim()&&tab==='transaksi'&&<div className="trace-card">
+    {clientId.trim()&&tab==='transaksi'&&<TraceCard>
       <strong>Catat transaksi</strong>
       {activeProducts.length===0?<div className="trace-muted" style={{marginTop:8}}>Belum ada produk aktif — tambah produk dulu di tab Produk.</div>:<>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:10}}>
@@ -110,11 +112,11 @@ export function SalesView(){
       <button onClick={recordSale} disabled={saving||!saleDraft.productId} style={{marginTop:12,border:0,borderRadius:9,padding:'10px 16px',background:'#171717',color:'#fff',fontWeight:700,cursor:'pointer'}}>Catat Transaksi</button>
       </>}
       <div style={{marginTop:16,display:'grid',gap:6}}>{loading?<div className="trace-muted">Memuat…</div>:scopedSales.length===0?<div className="trace-muted">Belum ada transaksi.</div>:scopedSales.slice(0,30).map(s=><div key={String(s.id)} style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr auto',gap:10,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.07)',fontSize:12}}><span>{new Date(String(s.sold_at)).toLocaleString('id-ID')}</span><span>{String(s.product_name_snapshot)}</span><span className="trace-muted">{String(s.channel)}</span><strong>{fmtFieldAmount(Number(s.qty)*Number(s.unit_price))}</strong></div>)}</div>
-    </div>}
+    </TraceCard>}
 
     {clientId.trim()&&tab==='dashboard'&&<>
-      <div className="trace-card"><div className="trace-muted" style={{fontSize:12}}>TOTAL REVENUE (SEMUA TRANSAKSI TERCATAT)</div><div style={{fontSize:30,fontWeight:800,marginTop:6}}>{fmtFieldAmount(dashboard.totalRevenue)}</div></div>
-      {dashboard.monthlyRevenue.length>0&&<div className="trace-card"><strong style={{fontSize:13}}>Revenue per bulan</strong><div style={{width:'100%',height:220,marginTop:10}}><ResponsiveContainer><BarChart data={dashboard.monthlyRevenue}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="period" fontSize={11}/><YAxis fontSize={11}/><RTooltip formatter={(v)=>fmtFieldAmount(v as number)}/><Bar dataKey="value" fill="#171717"/></BarChart></ResponsiveContainer></div></div>}
+      <TraceCard><div className="trace-muted" style={{fontSize:12}}>TOTAL REVENUE (SEMUA TRANSAKSI TERCATAT)</div><div style={{fontSize:30,fontWeight:800,marginTop:6}}>{fmtFieldAmount(dashboard.totalRevenue)}</div></TraceCard>
+      {dashboard.monthlyRevenue.length>0&&<TraceCard><strong style={{fontSize:13}}>Revenue per bulan</strong><div style={{width:'100%',height:220,marginTop:10}}><ResponsiveContainer><BarChart data={dashboard.monthlyRevenue}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="period" fontSize={11}/><YAxis fontSize={11}/><RTooltip formatter={(v)=>fmtFieldAmount(v as number)}/><Bar dataKey="value" fill="#171717"/></BarChart></ResponsiveContainer></div></TraceCard>}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:14}}>
         <Panel title="Produk Terlaris" items={dashboard.topProducts}/>
         <Panel title="Kategori Menu" items={dashboard.topCategories}/>

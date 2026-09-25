@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import { readReactSource } from './_react_source.mjs';
 const api=fs.readFileSync('netlify/functions/trace-data.js','utf8');
-const main=fs.readFileSync('src/app/main.tsx','utf8');
+const main=readReactSource();
 const mig=fs.readFileSync('supabase/migrations/026_internal_client_scope_hardening.sql','utf8');
 assert.match(api,/parseClientId/);
 assert.match(api,/CLIENT_SCOPED_RESOURCES/);

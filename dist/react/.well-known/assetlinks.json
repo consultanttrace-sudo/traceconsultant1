@@ -1,8 +1,0 @@
-[{
-      "relation": ["delegate_permission/common.handle_all_urls"],
-      "target": {
-        "namespace": "android_app",
-        "package_name": "app.netlify.traceconsultantessentials.twa",
-        "sha256_cert_fingerprints": ["9C:CC:71:C6:45:48:17:77:5F:CD:C3:85:3F:DE:E5:C9:04:DD:17:D8:8F:29:49:B2:E5:AF:E5:40:25:6B:39:70"]
-      }
-    }]

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { summarizeFinance, compareFinancePeriods } from '../dist/core/finance.js';
+import { summarizeFinance, compareFinancePeriods, filterFinanceRecordsByOutlet } from '../dist/core/finance.js';
 
 const records = [
   { id:'r1', period:'2026-08', amount:100000000, category:'revenue', evidence:{id:'e1',source:'system'} },
@@ -30,5 +30,17 @@ assert.equal(cmp.metrics.find(x => x.metric === 'Operating Profit').changePct, 2
 
 const zero = compareFinancePeriods([{id:'x',period:'2026-08',amount:10,category:'revenue'},{id:'x0',period:'2026-07',amount:0,category:'revenue'}], '2026-08', '2026-07');
 assert.equal(zero.metrics[0].status, 'undefined_baseline');
+
+// outlet filter: '' = semua outlet/pusat (tidak difilter); outlet dipilih = hanya baris yang persis
+// ditandai outlet itu; baris tanpa outletId (tingkat klien/shared) tidak ikut ke outlet manapun.
+const outletRecords = [
+  { id:'a', period:'2026-08', amount:1, category:'revenue', outletId:'kemang' },
+  { id:'b', period:'2026-08', amount:1, category:'revenue', outletId:'senayan' },
+  { id:'c', period:'2026-08', amount:1, category:'revenue' },
+];
+assert.equal(filterFinanceRecordsByOutlet(outletRecords, '').length, 3, 'kosong = semua outlet, tidak difilter');
+assert.deepEqual(filterFinanceRecordsByOutlet(outletRecords, 'kemang').map(r => r.id), ['a'], 'hanya baris yang ditandai outlet itu, baris client-level tidak ikut');
+assert.deepEqual(filterFinanceRecordsByOutlet(outletRecords, ' kemang ').map(r => r.id), ['a'], 'outletId ditrim sebelum dibandingkan');
+assert.equal(filterFinanceRecordsByOutlet(outletRecords, 'tidak-ada').length, 0, 'outlet tanpa record apapun → kosong, bukan fallback ke semua');
 
 console.log('PASS finance core assertions');

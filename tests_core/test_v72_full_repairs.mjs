@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const main=fs.readFileSync('src/app/main.tsx','utf8');
-const acq=fs.readFileSync('src/app/main.tsx','utf8');
+const acq=fs.readFileSync('src/app/views/_shared.tsx','utf8');
 const data=fs.readFileSync('src/core/dataIntake.ts','utf8');
 const pdf=fs.readFileSync('src/core/fileIntakeAdapters.ts','utf8');
 const security=fs.readFileSync('netlify/functions/security-scan.js','utf8');

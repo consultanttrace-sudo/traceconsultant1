@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
 import { buildCashFlowStatement, type CashFlowInput } from '../../core/cashFlowStatement';
 import { buildIncomeStatement } from '../../core/financeStatement';
-import type { FinanceRecord, FinanceStatementSection } from '../../core/finance';
+import { filterFinanceRecordsByOutlet, type FinanceRecord, type FinanceStatementSection } from '../../core/finance';
 import { totalMonthlyDepreciation, type FixedAsset } from '../../core/fixedAssets';
 import { fmtFieldAmount, loadTraceCollections, asArray, useTraceCollections, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { useOutletScope, usePeriodScope } from '../scopeStore';
+import { OutletSelector, PeriodSelector } from '../components/ScopeSelectors';
+import { TracePageHeader, TraceCard } from '../components/TraceUI';
 
 export function CashFlowView(){
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
-  const [clientId,setClientId]=useState('');
-  const [period,setPeriod]=useState('');
+  const [clientId,setClientId]=useClientScope();
+  const [outletId]=useOutletScope();
   const [financeRaw,setFinanceRaw]=useState<Array<Record<string,unknown>>>([]);
   const [fixedAssetsRaw,setFixedAssetsRaw]=useState<Array<Record<string,unknown>>>([]);
   const [loading,setLoading]=useState(false);
@@ -28,10 +32,11 @@ export function CashFlowView(){
   useEffect(()=>{void refresh()},[clientId]);
 
   // labaBersih: dari buildIncomeStatement, fungsi yang sama dipakai FinanceEntry — tidak dihitung ulang.
-  const records:FinanceRecord[]=financeRaw.map(r=>({id:String(r.id),period:String(r.period),amount:Number(r.amount),category:r.category as FinanceRecord['category'],outletId:r.outlet_id?String(r.outlet_id):undefined,accountLabel:r.account_label?String(r.account_label):undefined,statementSection:r.statement_section?r.statement_section as FinanceStatementSection:undefined}));
+  // Difilter ke outlet yang dipilih di scope global (kosong = semua outlet/pusat, seperti sebelumnya).
+  const records:FinanceRecord[]=filterFinanceRecordsByOutlet(financeRaw.map(r=>({id:String(r.id),period:String(r.period),amount:Number(r.amount),category:r.category as FinanceRecord['category'],outletId:r.outlet_id?String(r.outlet_id):undefined,accountLabel:r.account_label?String(r.account_label):undefined,statementSection:r.statement_section?r.statement_section as FinanceStatementSection:undefined})),outletId);
   const periods=[...new Set(records.map(r=>r.period))].sort();
-  const effectivePeriod=period||periods.at(-1)||'';
-  const incomeStatement=effectivePeriod?buildIncomeStatement(records,effectivePeriod):null;
+  const ps=usePeriodScope('latest',periods); const effectivePeriod=ps.period;
+  const incomeStatement=effectivePeriod&&ps.hasData!==false?buildIncomeStatement(records,effectivePeriod):null;
 
   // bebanPenyusutan: dari totalMonthlyDepreciation, fungsi yang sama dipakai AccountingView — tidak dihitung ulang.
   const fixedAssetsList:FixedAsset[]=fixedAssetsRaw.map(r=>({id:String(r.id),clientId:String(r.client_id),name:String(r.name),acquisitionDate:String(r.acquisition_date),acquisitionCost:Number(r.acquisition_cost),usefulLifeMonths:Number(r.useful_life_months),residualValue:Number(r.residual_value)}));
@@ -52,7 +57,7 @@ export function CashFlowView(){
     prive:null,
     kasAwalPeriode:null,
   };
-  const cashFlow=effectivePeriod?buildCashFlowStatement(cashFlowInput):null;
+  const cashFlow=effectivePeriod&&ps.hasData!==false?buildCashFlowStatement(cashFlowInput):null;
 
   const section=(title:string,sec:{lines:{label:string;amount:number}[];total:number}|undefined)=>sec&&<div style={{marginTop:14}}>
     <strong>{title}</strong>
@@ -63,26 +68,25 @@ export function CashFlowView(){
   </div>;
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}>
-      <div className="trace-muted" style={{fontSize:12}}>AKUNTANSI · LAPORAN ARUS KAS (METODE TIDAK LANGSUNG)</div>
-      <h1 style={{margin:'7px 0 5px',fontSize:30}}>Laba di atas kertas ≠ kas di tangan.</h1>
-      <div className="trace-muted">Dihitung `buildCashFlowStatement()` dari Laba Bersih (`buildIncomeStatement`, sama seperti Keuangan) dan Beban Penyusutan (`totalMonthlyDepreciation`, sama seperti Akuntansi). Input lain (perubahan piutang, persediaan, utang, aset tetap, modal, prive, kas awal) belum punya sumber data terhubung — dibiarkan kosong dan selalu tampil di daftar "data belum lengkap" di bawah, bukan ditebak jadi Rp0.</div>
-    </div>
+    <TracePageHeader kicker="AKUNTANSI · LAPORAN ARUS KAS (METODE TIDAK LANGSUNG)" title="Laba di atas kertas ≠ kas di tangan." description={'Dihitung `buildCashFlowStatement()` dari Laba Bersih (`buildIncomeStatement`, sama seperti Keuangan) dan Beban Penyusutan (`totalMonthlyDepreciation`, sama seperti Akuntansi). Input lain (perubahan piutang, persediaan, utang, aset tetap, modal, prive, kas awal) belum punya sumber data terhubung — dibiarkan kosong dan selalu tampil di daftar "data belum lengkap" di bawah, bukan ditebak jadi Rp0.'} />
 
-    <div className="trace-card">
-      <div style={{display:'grid',gridTemplateColumns:'1fr 200px',gap:10}}>
+    <TraceCard>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 200px 200px',gap:10}}>
         <label>Klien<select value={clientId} onChange={e=>setClientId(e.target.value)} style={inputStyle}>
           <option value="">Pilih klien</option>
           {clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}
         </select></label>
-        <label>Periode<input value={period} onChange={e=>setPeriod(e.target.value)} placeholder={periods.at(-1)||'2026-09'} style={inputStyle}/></label>
+        <OutletSelector clientId={clientId} dataOutletIds={[...new Set(financeRaw.map(r=>r.outlet_id?String(r.outlet_id):'').filter(Boolean))]}/>
+        <PeriodSelector fallback="latest" available={periods}/>
       </div>
       {loading&&<div className="trace-muted" style={{marginTop:8}}>Memuat…</div>}
       {msg&&<div className="trace-muted" style={{marginTop:8}}>{msg}</div>}
-      {clientId&&!effectivePeriod&&<div className="trace-muted" style={{marginTop:8}}>Belum ada data finance untuk klien ini — isi dulu di tab Keuangan, atau ketik periode manual di atas.</div>}
-    </div>
+      {clientId&&outletId&&<div className="trace-muted" style={{marginTop:8}}>Arus kas ini hanya menghitung record yang ditandai outlet <b>{outletId}</b>; record tingkat klien tanpa outlet tidak ikut. Kosongkan outlet untuk melihat semua.</div>}
+      {clientId&&!effectivePeriod&&<div className="trace-muted" style={{marginTop:8}}>Belum ada data finance untuk klien ini — isi dulu di tab Keuangan.</div>}
+      {clientId&&!loading&&ps.hasData===false&&<div className="trace-muted" style={{marginTop:8}}>Belum ada data finance untuk periode {effectivePeriod} — arus kas tidak dihitung. Pilih periode lain di atas.</div>}
+    </TraceCard>
 
-    {cashFlow&&<div className="trace-card">
+    {cashFlow&&<TraceCard>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',flexWrap:'wrap',gap:8}}>
         <strong>Arus Kas — Periode {cashFlow.period}</strong>
         {fixedAssetsList.length===0&&<span className="trace-muted" style={{fontSize:12}}>Belum ada aset tetap tercatat untuk klien ini (cek tab Akuntansi) — Beban Penyusutan dihitung 0 aset, bukan ditebak.</span>}
@@ -101,6 +105,6 @@ export function CashFlowView(){
       {cashFlow.missingInputs.length>0&&<div style={{marginTop:14,fontSize:12,color:'#b91c1c'}}>
         <strong>Data belum lengkap ({cashFlow.missingInputs.length}):</strong> {cashFlow.missingInputs.join(', ')}. Baris di atas memakai asumsi Rp0 untuk item ini sampai datanya terhubung — jangan kirim laporan ini ke klien sebagai final tanpa melengkapi dulu.
       </div>}
-    </div>}
+    </TraceCard>}
   </div>;
 }

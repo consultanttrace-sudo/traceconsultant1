@@ -8,12 +8,14 @@ import { isPeriodLocked, type PeriodLock } from '../../core/periodClose';
 import { buildBalanceSheet, type BalanceSheetGroup } from '../../core/balanceSheet';
 import { withInferredSubTypes } from '../../core/accountSubTypeInference';
 import { fmtFieldAmount, getReactSupabase, loadTraceCollections, asArray, useTraceCollections, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { TracePageHeader, TraceCard } from '../components/TraceUI';
 
 export type JournalLineDraft={accountId:string;debit:string|number;credit:string|number;memo:string};
 export const EMPTY_JOURNAL_LINE:JournalLineDraft={accountId:'',debit:'',credit:'',memo:''};
 
 export function AccountingView(){
-  const [clientId,setClientId]=useState('');
+  const [clientId,setClientId]=useClientScope();
   const [loading,setLoading]=useState(true);
   const [loadError,setLoadError]=useState('');
   const [accounts,setAccounts]=useState<Array<Record<string,unknown>>>([]);
@@ -185,21 +187,21 @@ export function AccountingView(){
   };
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>AKUNTANSI · CHART OF ACCOUNTS, JURNAL, NERACA, PIUTANG/UTANG, ASET TETAP, TUTUP BUKU</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>Chart of accounts, jurnal berpasangan, Neraca, dan modul pendukungnya</h1><div className="trace-muted">Terhubung ke trace_accounts / trace_journal_entries / trace_journal_lines / trace_ar_invoices / trace_ar_payments / trace_ap_bills / trace_ap_payments / trace_fixed_assets / trace_period_locks lewat RPC masing-masing (migration 032–033) — bukan draft lokal. Sub-tipe akun untuk Neraca ditebak dari kode akun, belum jadi kolom database.</div></div>
+    <TracePageHeader kicker="AKUNTANSI · CHART OF ACCOUNTS, JURNAL, NERACA, PIUTANG/UTANG, ASET TETAP, TUTUP BUKU" title="Chart of accounts, jurnal berpasangan, Neraca, dan modul pendukungnya" description="Terhubung ke trace_accounts / trace_journal_entries / trace_journal_lines / trace_ar_invoices / trace_ar_payments / trace_ap_bills / trace_ap_payments / trace_fixed_assets / trace_period_locks lewat RPC masing-masing (migration 032–033) — bukan draft lokal. Sub-tipe akun untuk Neraca ditebak dari kode akun, belum jadi kolom database." />
 
-    <div className="trace-card">
+    <TraceCard>
       <label>Klien / Scope (wajib)<select value={clientId} onChange={e=>setClientId(e.target.value)} style={inputStyle}><option value="">Pilih klien</option>{clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}</select></label>
       {message&&<div className="trace-muted" style={{fontSize:12,marginTop:8}}>{message}</div>}
-    </div>
+    </TraceCard>
 
     {clientId.trim()&&<div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(280px,.8fr)',gap:16}}>
-      <div className="trace-card">
+      <TraceCard>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>Chart of Accounts</strong>{accounts.length===0&&<button onClick={seedDefaultChart} disabled={seeding} style={{border:0,borderRadius:9,padding:'8px 14px',background:'#171717',color:'#fff',fontWeight:700,cursor:'pointer'}}>{seeding?'Membuat…':'Buat Chart Default'}</button>}</div>
         {loading?<div className="trace-muted" style={{marginTop:12}}>Memuat…</div>:loadError?<div className="trace-muted" style={{marginTop:12}}>{loadError}</div>:accounts.length===0?<div className="trace-muted" style={{marginTop:12}}>Belum ada akun. Klik "Buat Chart Default" untuk membuat 10 akun standar (Kas, Piutang, Persediaan, Utang, Modal, Pendapatan, COGS, Labor, OPEX, Marketing).</div>:
         <div style={{marginTop:12,display:'grid',gap:5,fontSize:13}}>{[...accounts].sort((a,b)=>String(a.code).localeCompare(String(b.code))).map(a=><div key={String(a.id)} style={{display:'grid',gridTemplateColumns:'70px 1fr 100px',gap:10,padding:'6px 0',borderTop:'1px solid rgba(23,23,23,.07)'}}><span className="trace-muted">{String(a.code)}</span><span>{String(a.name)}</span><span className="trace-muted" style={{textTransform:'capitalize'}}>{String(a.account_type)}</span></div>)}</div>}
-      </div>
+      </TraceCard>
 
-      <div className="trace-card" style={{alignSelf:'start'}}>
+      <TraceCard style={{alignSelf:'start'}}>
         <strong>Trial Balance</strong>
         {!trialBalance?<div className="trace-muted" style={{fontSize:12,marginTop:8}}>Buat chart of accounts dulu.</div>:
         <div style={{marginTop:10}}>
@@ -207,10 +209,10 @@ export function AccountingView(){
           <div style={{display:'grid',gap:4,fontSize:12,maxHeight:260,overflowY:'auto'}}>{trialBalance.accounts.filter(r=>r.debit||r.credit).map(r=>{const acc=ledgerAccounts.find(a=>a.id===r.accountId);return <div key={r.accountId} style={{display:'grid',gridTemplateColumns:'1fr 70px 70px',gap:8,padding:'4px 0',borderTop:'1px solid rgba(23,23,23,.06)'}}><span>{acc?`${acc.code} ${acc.name}`:r.accountId}</span><span>{fmtFieldAmount(r.debit)}</span><span>{fmtFieldAmount(r.credit)}</span></div>})}</div>
           <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,fontSize:13,marginTop:8,borderTop:'1px solid rgba(23,23,23,.12)',paddingTop:8}}><span>Total</span><span>{fmtFieldAmount(trialBalance.totalDebit)} / {fmtFieldAmount(trialBalance.totalCredit)}</span></div>
         </div>}
-      </div>
+      </TraceCard>
     </div>}
 
-    {clientId.trim()&&neraca&&<div className="trace-card">
+    {clientId.trim()&&neraca&&<TraceCard>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>Neraca (Balance Sheet) — {neraca.asOfPeriod}</strong><div style={{display:'flex',gap:9,alignItems:'center'}}>{neraca.balanced?<CircleCheck size={16}/>:<TriangleAlert size={16}/>}<span style={{fontSize:13,fontWeight:700}}>{neraca.balanced?'Balanced':`Selisih ${fmtFieldAmount(neraca.selisih)}`}</span></div></div>
       <div className="trace-muted" style={{fontSize:12,marginTop:6}}>Sub-tipe akun (aset lancar/tetap, liabilitas jangka pendek/panjang, dst) ditebak otomatis dari kode + tipe akun (lihat accountSubTypeInference.ts) — belum jadi kolom database tersendiri.</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginTop:14}}>
@@ -227,9 +229,9 @@ export function AccountingView(){
         </div>
       </div>
       {neraca.missingAccountIds.length>0&&<div className="trace-muted" style={{fontSize:12,marginTop:10,color:'#b91c1c'}}>{neraca.missingAccountIds.length} akun punya saldo di jurnal tapi tidak ketemu di chart of accounts — cek data sebelum kirim laporan ke klien.</div>}
-    </div>}
+    </TraceCard>}
 
-    {clientId.trim()&&accounts.length>0&&<div className="trace-card">
+    {clientId.trim()&&accounts.length>0&&<TraceCard>
       <strong>Posting Jurnal Baru</strong>
       <div style={{display:'grid',gap:10,marginTop:10}}>
         <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:10}}>
@@ -246,14 +248,14 @@ export function AccountingView(){
         <div className="trace-muted" style={{fontSize:12}}>Total debit {fmtFieldAmount(totalDebit)} · Total kredit {fmtFieldAmount(totalCredit)} · {balanced?'Sudah balance.':'Belum balance — debit harus sama dengan kredit.'}</div>
         <button onClick={postJournal} disabled={!canPost} style={{justifySelf:'start',border:0,borderRadius:9,padding:'10px 16px',background:canPost?'#171717':'#eee',color:canPost?'#fff':'#999',fontWeight:700,cursor:canPost?'pointer':'not-allowed'}}>{posting?'Memposting…':'Posting Jurnal'}</button>
       </div>
-    </div>}
+    </TraceCard>}
 
-    {clientId.trim()&&entries.length>0&&<div className="trace-card">
+    {clientId.trim()&&entries.length>0&&<TraceCard>
       <strong>Histori Jurnal</strong>
       <div style={{marginTop:10,display:'grid',gap:6,fontSize:13}}>{[...entries].sort((a,b)=>String(b.entry_date).localeCompare(String(a.entry_date))).map(e=><div key={String(e.id)} style={{padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.07)'}}><div style={{display:'flex',justifyContent:'space-between'}}><span>{String(e.entry_date)}</span><span className="trace-muted">{String(e.source)}</span></div><div>{String(e.memo)}</div></div>)}</div>
-    </div>}
+    </TraceCard>}
 
-    {clientId.trim()&&<div className="trace-card">
+    {clientId.trim()&&<TraceCard>
       <strong>Piutang Usaha (AR) &amp; Umur Piutang</strong>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:8,marginTop:10,alignItems:'end'}}>
         <label style={{fontSize:12}}>Nama pelanggan<input value={arDraft.customerName} onChange={e=>setArDraft(d=>({...d,customerName:e.target.value}))} style={inputStyle}/></label>
@@ -273,9 +275,9 @@ export function AccountingView(){
         <label style={{fontSize:12}}>Tgl bayar<input type="date" value={arPaymentDraft.paidDate} onChange={e=>setArPaymentDraft(d=>({...d,paidDate:e.target.value}))} style={inputStyle}/></label>
         <button onClick={recordArPayment} disabled={arApBusy} style={{border:'1px solid rgba(23,23,23,.14)',borderRadius:9,padding:'8px 14px',background:'#fff',fontWeight:700,cursor:'pointer'}}>Catat Bayar</button>
       </div>}
-    </div>}
+    </TraceCard>}
 
-    {clientId.trim()&&<div className="trace-card">
+    {clientId.trim()&&<TraceCard>
       <strong>Utang Usaha (AP) &amp; Umur Utang</strong>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:8,marginTop:10,alignItems:'end'}}>
         <label style={{fontSize:12}}>Nama supplier<input value={apDraft.vendorName} onChange={e=>setApDraft(d=>({...d,vendorName:e.target.value}))} style={inputStyle}/></label>
@@ -295,9 +297,9 @@ export function AccountingView(){
         <label style={{fontSize:12}}>Tgl bayar<input type="date" value={apPaymentDraft.paidDate} onChange={e=>setApPaymentDraft(d=>({...d,paidDate:e.target.value}))} style={inputStyle}/></label>
         <button onClick={recordApPayment} disabled={arApBusy} style={{border:'1px solid rgba(23,23,23,.14)',borderRadius:9,padding:'8px 14px',background:'#fff',fontWeight:700,cursor:'pointer'}}>Catat Bayar</button>
       </div>}
-    </div>}
+    </TraceCard>}
 
-    {clientId.trim()&&<div className="trace-card">
+    {clientId.trim()&&<TraceCard>
       <strong>Aset Tetap &amp; Penyusutan</strong>
       <div style={{display:'grid',gridTemplateColumns:'1.4fr 1fr 1fr 1fr 1fr auto',gap:8,marginTop:10,alignItems:'end'}}>
         <label style={{fontSize:12}}>Nama aset<input value={assetDraft.name} onChange={e=>setAssetDraft(d=>({...d,name:e.target.value}))} style={inputStyle}/></label>
@@ -311,9 +313,9 @@ export function AccountingView(){
         <div style={{fontSize:13,fontWeight:700}}>Total penyusutan/bulan (semua aset): {fmtFieldAmount(monthlyDepreciationTotal)}</div>
         <div style={{marginTop:10,display:'grid',gap:5,fontSize:13}}>{fixedAssetsList.map(a=>{const sched=buildDepreciationSchedule(a,[currentPeriod]); return <div key={a.id} style={{display:'grid',gridTemplateColumns:'1.4fr 1fr 1fr 1fr',gap:8,padding:'6px 0',borderTop:'1px solid rgba(23,23,23,.07)'}}><span>{a.name}</span><span className="trace-muted">beli {a.acquisitionDate}</span><span>{fmtFieldAmount(sched.monthlyDepreciation)}/bln</span><span className="trace-muted">{sched.fullyDepreciated?'lunas susut':`sisa buku ${fmtFieldAmount(sched.schedule[0]?.bookValue)}`}</span></div>;})}</div>
       </div>}
-    </div>}
+    </TraceCard>}
 
-    {clientId.trim()&&<div className="trace-card">
+    {clientId.trim()&&<TraceCard>
       <strong>Tutup Buku (Period Lock)</strong>
       <div className="trace-muted" style={{fontSize:12,marginTop:6}}>Mengunci periode mencegah jurnal baru diposting ke bulan itu — tidak bisa dibuka lagi lewat aplikasi. Periode berjalan ({currentPeriod}): <b>{currentPeriodLocked?'sudah terkunci':'masih terbuka'}</b>.</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,marginTop:10,maxWidth:320}}>
@@ -321,12 +323,12 @@ export function AccountingView(){
         <button onClick={lockPeriod} disabled={arApBusy||periodLocks.some(l=>l.period===lockDraft)} style={{border:0,borderRadius:9,padding:'8px 14px',background:'#b91c1c',color:'#fff',fontWeight:700,cursor:'pointer'}}>Kunci Periode</button>
       </div>
       {periodLocks.length>0&&<div style={{marginTop:12,display:'grid',gap:4,fontSize:13}}>{[...periodLocks].sort((a,b)=>b.period.localeCompare(a.period)).map(l=><div key={l.period} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderTop:'1px solid rgba(23,23,23,.07)'}}><span>{l.period}</span><span className="trace-muted">dikunci {String(l.lockedAt).slice(0,10)}</span></div>)}</div>}
-    </div>}
+    </TraceCard>}
 
-    <div className="trace-card" style={{background:'#fff7ed',border:'1px solid #fed7aa'}}>
+    <TraceCard style={{background:'#fff7ed',border:'1px solid #fed7aa'}}>
       <strong style={{fontSize:13}}>Belum termasuk di layar ini</strong>
       <div className="trace-muted" style={{fontSize:12,marginTop:6}}>COGS resep (`calculateRecipeCogs`) belum ada UI-nya di sini karena butuh input komponen resep per produk yang saat ini hidup di modul inventory — akan menyusul sebagai layar terpisah, bukan diklaim selesai di sini.</div>
-    </div>
+    </TraceCard>
   </div>
 }
 

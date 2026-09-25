@@ -14,12 +14,12 @@ const CLIENT_SCOPED_KEYS = new Set([
   'trace-stock-movement','trace-stock-opname','trace-marketing-event'
 ]);
 const RESOURCES = new Set([
-  'tasks','audit','clients','imports','finance','products','sales','pos_events','inventory_movements','inventory_items',
+  'tasks','audit','clients','outlets','imports','finance','products','sales','pos_events','inventory_movements','inventory_items',
   'inventory_recipes','anomalies','alerts','health','social_accounts','content_items','content_metrics',
   'content_inquiries','ad_accounts','ad_campaigns','ad_metrics','competitor_accounts','competitor_snapshots',
   'competitor_posts','competitor_discovery_lens','content_plans','ingestion','accounts','journal_entries','journal_lines','ar_invoices','ar_payments','ap_bills','ap_payments','fixed_assets','period_locks'
 ]);
-const CLIENT_SCOPED_RESOURCES = new Set([...RESOURCES].filter(x => x !== 'audit' && x !== 'clients'));
+const CLIENT_SCOPED_RESOURCES = new Set([...RESOURCES].filter(x => x !== 'audit' && x !== 'clients' && x !== 'outlets'));
 const RESOURCE_RPC_KEYS = new Set([
   'tasks','imports','finance','products','sales','pos_events','inventory_movements','inventory_items',
   'inventory_recipes','anomalies','alerts','health','social_accounts','content_items','content_metrics',
@@ -93,6 +93,21 @@ exports.handler=async(event)=>{
   for(const name of resources.filter(r=>r==='clients')){
     try{
       const r=await fetchWithTimeout(`${base}/rest/v1/rpc/trace_list_clients`,{method:'POST',headers,body:JSON.stringify({})},5000);
+      if(!r.ok) throw new Error(`HTTP_${r.status}`);
+      const value=await r.json();
+      if(!Array.isArray(value)) throw new Error('INVALID_RESOURCE_RESPONSE');
+      out[name]=value;
+    }catch(error){unavailable.push({key:name,reason:error?.name==='AbortError'?'timeout':'unavailable'});}
+  }
+
+  // Outlet master list: internal team metadata (client_id column, not a
+  // per-client dataset), read via the audited RPC (trace_list_outlets) —
+  // same trust boundary as 'clients' above. The client-side scope selector
+  // filters this global list down to one client's outlets itself, the same
+  // way it already does with the (never-populated) hierarchy KV keys.
+  for(const name of resources.filter(r=>r==='outlets')){
+    try{
+      const r=await fetchWithTimeout(`${base}/rest/v1/rpc/trace_list_outlets`,{method:'POST',headers,body:JSON.stringify({})},5000);
       if(!r.ok) throw new Error(`HTTP_${r.status}`);
       const value=await r.json();
       if(!Array.isArray(value)) throw new Error('INVALID_RESOURCE_RESPONSE');

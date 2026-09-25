@@ -3,6 +3,9 @@ import type { ErrorInfo, ReactNode } from 'react';
 import { Settings } from 'lucide-react';
 import { fetchWithTimeout } from '../../core/browserNetwork';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { TracePageHeader, TraceCard } from '../components/TraceUI';
+import { AppSplash } from '../components/AppSplash';
+import { AppOnboarding, hasSeenOnboarding } from '../components/AppOnboarding';
 
 export function fmtFieldAmount(v: unknown): string {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
@@ -11,7 +14,7 @@ export function fmtFieldAmount(v: unknown): string {
 
 export type TraceCollectionState = { loading:boolean; error:string; data:Record<string, unknown>; unavailable:string[] };
 export const TRACE_KEYS = ['trace-clients','trace-companies','trace-brands','trace-outlets','trace-team'] as const;
-export type TraceResource = 'tasks'|'audit'|'clients'|'imports'|'finance'|'products'|'sales'|'pos_events'|'inventory_movements'|'inventory_items'|'inventory_recipes'|'anomalies'|'alerts'|'health'|'accounts'|'journal_entries'|'journal_lines'|'ar_invoices'|'ar_payments'|'ap_bills'|'ap_payments'|'fixed_assets'|'period_locks';
+export type TraceResource = 'tasks'|'audit'|'clients'|'outlets'|'imports'|'finance'|'products'|'sales'|'pos_events'|'inventory_movements'|'inventory_items'|'inventory_recipes'|'anomalies'|'alerts'|'health'|'accounts'|'journal_entries'|'journal_lines'|'ar_invoices'|'ar_payments'|'ap_bills'|'ap_payments'|'fixed_assets'|'period_locks'|'social_accounts'|'content_items';
 let reactSupabase: SupabaseClient | null = null;
 export function getReactSupabase(): SupabaseClient | null {
   const url = import.meta.env.VITE_SUPABASE_URL;
@@ -127,10 +130,22 @@ export async function loadTraceCollections(keys: readonly string[], resources: r
   // reshaped back into the array-of-objects shape the 21 existing view
   // consumers already expect (they only ever read .id / .name, with a
   // .business_name fallback that is simply never populated by the new rows).
+  // v72.14 — same shim, for 'trace-outlets': outlet master data now lives
+  // in public.trace_outlets (RPC trace_list_outlets), read via the
+  // 'outlets' resource. Rows are reshaped back into the {id, nama, name,
+  // clientId} shape outletOptionsForClient (core/scope.ts) already expects
+  // from the old Company→Brand→Outlet KV hierarchy, minus brandId — that
+  // function now matches an outlet to its client directly by clientId
+  // when present, so the never-populated company/brand chain is no longer
+  // required for suggestions to work.
   const legacyClientsRequested = keys.includes('trace-clients');
-  const effectiveKeys = legacyClientsRequested ? keys.filter(k=>k!=='trace-clients') : keys;
+  const legacyOutletsRequested = keys.includes('trace-outlets');
+  const effectiveKeys = keys.filter(k=>k!=='trace-clients'&&k!=='trace-outlets');
   const wantedClientsResource = resources.includes('clients');
-  const effectiveResources = legacyClientsRequested && !wantedClientsResource ? [...resources,'clients'] : resources;
+  const wantedOutletsResource = resources.includes('outlets');
+  let effectiveResources = resources;
+  if(legacyClientsRequested && !wantedClientsResource) effectiveResources=[...effectiveResources,'clients'];
+  if(legacyOutletsRequested && !wantedOutletsResource) effectiveResources=[...effectiveResources,'outlets'];
 
   const qs=encodeURIComponent(effectiveKeys.join(','));
   const rq=encodeURIComponent(effectiveResources.join(','));
@@ -153,6 +168,17 @@ export async function loadTraceCollections(keys: readonly string[], resources: r
     if(!wantedClientsResource) delete data['clients'];
     const idx=unavailable.indexOf('clients');
     if(idx!==-1) unavailable[idx]='trace-clients';
+  }
+
+  if(legacyOutletsRequested){
+    const rows=Array.isArray(data['outlets'])?data['outlets'] as Record<string,unknown>[]:[];
+    data['trace-outlets']=rows.map(r=>({
+      id:r.id, nama:r.name, name:r.name, clientId:r.client_id, notes:r.notes,
+      createdAt:r.created_at, updatedAt:r.updated_at,
+    }));
+    if(!wantedOutletsResource) delete data['outlets'];
+    const idx=unavailable.indexOf('outlets');
+    if(idx!==-1) unavailable[idx]='trace-outlets';
   }
 
   return {data, unavailable};
@@ -179,11 +205,18 @@ export class TraceErrorBoundary extends Component<{children:ReactNode},{hasError
 export function TraceAuthGate({children}:{children:ReactNode}){
   const [ready,setReady]=useState(false); const [session,setSession]=useState<boolean>(false);
   const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  const [minTimeUp,setMinTimeUp]=useState(false); const [safetyUp,setSafetyUp]=useState(false); const [splashDone,setSplashDone]=useState(false);
+  const [onboardingDone,setOnboardingDone]=useState(()=>hasSeenOnboarding());
   useEffect(()=>{const supabase=getReactSupabase(); if(!supabase){setReady(true);setError('Supabase belum dikonfigurasi pada aplikasi ini.');return;} let alive=true; supabase.auth.getSession().then(({data})=>{if(alive){setSession(!!data.session);setReady(true)}}).catch(()=>{if(alive){setError('Session Supabase tidak dapat diperiksa.');setReady(true)}}); const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,next)=>{if(alive){setSession(!!next);setReady(true)}}); return()=>{alive=false;subscription.unsubscribe()};},[]);
+  // Splash mirrors the legacy monolith's timing: visible at least 900ms so it never just flickers,
+  // but never blocks longer than 3200ms even if the Supabase session check stalls.
+  useEffect(()=>{const t=setTimeout(()=>setMinTimeUp(true),900);return()=>clearTimeout(t);},[]);
+  useEffect(()=>{const t=setTimeout(()=>setSafetyUp(true),3200);return()=>clearTimeout(t);},[]);
   const login=async(e:React.FormEvent)=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{const supabase=getReactSupabase();if(!supabase)throw new Error('Supabase belum dikonfigurasi.');const {error}=await supabase.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;setPassword('');}catch(err){setError(err instanceof Error?err.message:'Login gagal.');}finally{setBusy(false)}};
-  if(!ready) return <main className="trace-auth-screen"><div className="trace-auth-card"><div className="trace-section-kicker">TRACE · AUTHENTICATION</div><h1>Memeriksa sesi…</h1><div className="trace-muted">TRACE menunggu session Supabase sebelum membuka data production.</div></div></main>;
+  if(!splashDone) return <AppSplash hidden={safetyUp||(ready&&minTimeUp)} onExited={()=>setSplashDone(true)} />;
   if(session) return <>{children}</>;
-  return <main className="trace-auth-screen"><form className="trace-auth-card" onSubmit={login}><div className="trace-section-kicker">TRACE · CONSULTANT OS</div><h1>Masuk ke TRACE</h1><p className="trace-muted">Login diperlukan sebelum data client, finance, accounting, inventory, acquisition, dan diagnostic dapat dibaca.</p><label>Email<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} required /></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required /></label>{error&&<div className="trace-alert">{error}</div>}<button className="trace-button" disabled={busy}>{busy?'Memeriksa…':'Masuk'}</button></form></main>;
+  if(!onboardingDone) return <AppOnboarding onDone={()=>setOnboardingDone(true)} />;
+  return <main className="trace-auth-screen"><form className="trace-auth-card" onSubmit={login}><div className="trace-auth-brand"><div className="trace-auth-brand-mark"><img src="/logo.png" alt="" onError={e=>{(e.currentTarget as HTMLImageElement).style.display='none'}} /></div></div><div className="trace-section-kicker">TRACE · CONSULTANT OS</div><h1>Masuk ke TRACE</h1><p className="trace-muted">Login diperlukan sebelum data client, finance, accounting, inventory, acquisition, dan diagnostic dapat dibaca.</p><label>Email<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} required /></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required /></label>{error&&<div className="trace-alert">{error}</div>}<button className="trace-button" disabled={busy}>{busy?'Memeriksa…':'Masuk'}</button></form></main>;
 }
 
 export const money=(n:number)=>`Rp ${Math.round(n||0).toLocaleString('id-ID')}`;
@@ -191,7 +224,7 @@ export const inputStyle: React.CSSProperties={width:'100%',marginTop:7,padding:'
 
 export function ComingSoonPanel({title,kicker,note}:{title:string;kicker:string;note:string}){
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>{kicker}</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>{title}</h1><div className="trace-muted">{note}</div></div>
-    <div className="trace-card"><strong>Layar ini menyusul.</strong><div className="trace-muted" style={{marginTop:7}}>RPC dan tabelnya sudah siap di Supabase; UI-nya sedang dibangun bertahap, satu modul per sesi, mengikuti pola layar Stock Opname/Inventory/Akuntansi di atas.</div></div>
+    <TracePageHeader kicker={kicker} title={title} description={note} />
+    <TraceCard><strong>Layar ini menyusul.</strong><div className="trace-muted" style={{marginTop:7}}>RPC dan tabelnya sudah siap di Supabase; UI-nya sedang dibangun bertahap, satu modul per sesi, mengikuti pola layar Stock Opname/Inventory/Akuntansi di atas.</div></TraceCard>
   </div>;
 }

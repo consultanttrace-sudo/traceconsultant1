@@ -14,6 +14,7 @@
   ],
   "exclude": [
     "src/core/fileIntakeAdapters.ts",
-    "src/core/financeReport.ts"
+    "src/core/financeReport.ts",
+    "src/core/consultingReportExcel.ts"
   ]
 }

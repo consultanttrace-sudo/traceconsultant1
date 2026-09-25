@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { requireReactSession, loadTraceCollections, asArray, useTraceCollections, money, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { useOutletScope, usePeriodScope } from '../scopeStore';
+import { OutletSelector, PeriodSelector } from '../components/ScopeSelectors';
+import { TracePageHeader, TraceCard, TraceEmptyState } from '../components/TraceUI';
 
 export function OpexDetailView(){
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
-  const [clientId,setClientId]=useState(''); const [outletId,setOutletId]=useState('');
-  const [period,setPeriod]=useState(new Date().toISOString().slice(0,7));
+  const [clientId,setClientId]=useClientScope(); const [outletId]=useOutletScope();
+  const ps=usePeriodScope('current'); const period=ps.period;
   const [categories,setCategories]=useState<Array<Record<string,unknown>>>([]);
   const [items,setItems]=useState<Array<Record<string,unknown>>>([]);
   const [budget,setBudget]=useState<Array<Record<string,unknown>>>([]);
@@ -48,19 +52,19 @@ export function OpexDetailView(){
   const totalPaid=items.reduce((a,i)=>a+Number(i.paid_amount||0),0);
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>OPEX · DETAIL</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>OPEX dengan template berulang otomatis dan budget vs actual.</h1><div className="trace-muted">Tagihan bulanan/kuartalan/tahunan cukup dibuat sekali sebagai template — generate otomatis tiap ganti periode. Status bayar terhitung dari due date, bukan input manual.</div></div>
-    <div className="trace-card" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+    <TracePageHeader kicker="OPEX · DETAIL" title="OPEX dengan template berulang otomatis dan budget vs actual." description="Tagihan bulanan/kuartalan/tahunan cukup dibuat sekali sebagai template — generate otomatis tiap ganti periode. Status bayar terhitung dari due date, bukan input manual." />
+    <TraceCard style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
       <label>Klien<select value={clientId} onChange={e=>setClientId(e.target.value)} style={inputStyle}><option value="">Pilih klien</option>{clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}</select></label>
-      <label>Outlet (opsional)<input value={outletId} onChange={e=>setOutletId(e.target.value)} placeholder="Kosongkan untuk pusat" style={inputStyle}/></label>
-      <label>Periode<input type="month" value={period} onChange={e=>setPeriod(e.target.value)} style={inputStyle}/></label>
-    </div>
+      <OutletSelector clientId={clientId}/>
+      <PeriodSelector fallback="current"/>
+    </TraceCard>
     {msg&&<div className="trace-muted" style={{fontSize:12}}>{msg}</div>}
     {clientId&&<>
-      <div className="trace-card"><strong>Kategori OPEX</strong>
+      <TraceCard><strong>Kategori OPEX</strong>
         <div style={{marginTop:8,display:'flex',flexWrap:'wrap',gap:6}}>{categories.map(c=><span key={String(c.id)} style={{fontSize:12,padding:'4px 9px',borderRadius:999,background:'#f2f2ee'}}>{String(c.name)}</span>)}</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 2fr auto',gap:8,marginTop:10}}><input placeholder="Kode (opsional)" value={catForm.code} onChange={e=>setCatForm({...catForm,code:e.target.value})} style={inputStyle}/><input placeholder="Nama kategori" value={catForm.name} onChange={e=>setCatForm({...catForm,name:e.target.value})} style={inputStyle}/><button disabled={busy||!catForm.name} onClick={createCategory} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>+ Kategori</button></div>
-      </div>
-      <div className="trace-card"><strong>Tambah Item / Template Berulang</strong>
+      </TraceCard>
+      <TraceCard><strong>Tambah Item / Template Berulang</strong>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,marginTop:10}}>
           <select value={itemForm.categoryId} onChange={e=>setItemForm({...itemForm,categoryId:e.target.value})} style={inputStyle}><option value="">Kategori</option>{categories.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name)}</option>)}</select>
           <input placeholder="Vendor" value={itemForm.vendor} onChange={e=>setItemForm({...itemForm,vendor:e.target.value})} style={inputStyle}/>
@@ -71,18 +75,18 @@ export function OpexDetailView(){
           <button disabled={busy||!itemForm.categoryId||!itemForm.amount} onClick={createItem} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>{itemForm.freq==='one_time'?'+ Tambah Item':'+ Buat Template'}</button>
         </div>
         {itemForm.freq!=='one_time'&&<div className="trace-muted" style={{fontSize:12,marginTop:6}}>Template belum langsung muncul sebagai tagihan bulan ini — klik "Generate Tagihan Berulang" di bawah.</div>}
-      </div>
-      <div className="trace-card"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>Tagihan Periode {period}</strong><button disabled={busy} onClick={generateRecurring} style={{border:'1px solid rgba(23,23,23,.14)',borderRadius:9,padding:'7px 11px',background:'#fff',fontWeight:700,fontSize:12}}>Generate Tagihan Berulang</button></div>
+      </TraceCard>
+      <TraceCard><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>Tagihan Periode {period}</strong><button disabled={busy} onClick={generateRecurring} style={{border:'1px solid rgba(23,23,23,.14)',borderRadius:9,padding:'7px 11px',background:'#fff',fontWeight:700,fontSize:12}}>Generate Tagihan Berulang</button></div>
         <div className="trace-muted" style={{fontSize:12,marginTop:6}}>Total {money(totalActual)} · Dibayar {money(totalPaid)} · Belum dibayar {money(totalActual-totalPaid)}</div>
-        <div style={{marginTop:10,display:'grid',gap:5}}>{items.length===0?<div className="trace-muted" style={{fontSize:12}}>Belum ada tagihan periode ini.</div>:items.map(i=><div key={String(i.id)} style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:8,padding:'6px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,alignItems:'center'}}>
+        <div style={{marginTop:10,display:'grid',gap:5}}>{items.length===0?<TraceEmptyState message="Belum ada tagihan periode ini."/>:items.map(i=><div key={String(i.id)} style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:8,padding:'6px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,alignItems:'center'}}>
           <span>{catName(String(i.opex_category_id))}{i.vendor_name?` · ${String(i.vendor_name)}`:''}</span>
           <span>{money(Number(i.amount))}</span>
           <span className="trace-muted">{i.due_date?String(i.due_date):'—'}</span>
           <span style={{textTransform:'uppercase',fontSize:11,fontWeight:700,color:String(i.payment_status)==='paid'?'#15803d':String(i.payment_status)==='overdue'?'#b91c1c':'#a16207'}}>{String(i.payment_status)}</span>
           {String(i.payment_status)!=='paid'&&<button onClick={()=>void payItem(String(i.id),Number(i.amount)-Number(i.paid_amount||0))} disabled={busy} style={{fontSize:11,border:'1px solid rgba(23,23,23,.14)',borderRadius:7,padding:'5px 8px',background:'#fff'}}>Tandai Lunas</button>}
         </div>)}</div>
-      </div>
-      <div className="trace-card"><strong>Budget vs Actual</strong>
+      </TraceCard>
+      <TraceCard><strong>Budget vs Actual</strong>
         <div style={{marginTop:10,display:'grid',gap:5}}>{budget.map(b=><div key={String(b.opex_category_id)} style={{display:'grid',gridTemplateColumns:'1.2fr 1fr 1fr 1fr auto',gap:8,padding:'6px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,alignItems:'center'}}>
           <span>{String(b.category_name)}</span>
           <input type="number" value={budgetDraft[String(b.opex_category_id)]??''} onChange={e=>setBudgetDraft({...budgetDraft,[String(b.opex_category_id)]:e.target.value})} style={{...inputStyle,marginTop:0}}/>
@@ -90,8 +94,8 @@ export function OpexDetailView(){
           <span style={{color:Number(b.variance_amount)<0?'#b91c1c':'#15803d'}}>Selisih {money(Number(b.variance_amount))}{b.variance_pct!=null?` (${b.variance_pct}%)`:''}</span>
           <button onClick={()=>void saveBudget(String(b.opex_category_id))} disabled={busy} style={{fontSize:11,border:'1px solid rgba(23,23,23,.14)',borderRadius:7,padding:'5px 8px',background:'#fff'}}>Simpan</button>
         </div>)}</div>
-      </div>
-      <div className="trace-card"><strong>Posting Periode ke Jurnal</strong>
+      </TraceCard>
+      <TraceCard><strong>Posting Periode ke Jurnal</strong>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:8,marginTop:10}}>
           <select value={postForm.expense} onChange={e=>setPostForm({...postForm,expense:e.target.value})} style={inputStyle}><option value="">Akun Beban OPEX</option>{accounts.map(a=><option key={String(a.id)} value={String(a.id)}>{String(a.code)} {String(a.name)}</option>)}</select>
           <select value={postForm.cash} onChange={e=>setPostForm({...postForm,cash:e.target.value})} style={inputStyle}><option value="">Akun Kas/Bank</option>{accounts.map(a=><option key={String(a.id)} value={String(a.id)}>{String(a.code)} {String(a.name)}</option>)}</select>
@@ -99,7 +103,7 @@ export function OpexDetailView(){
           <input type="date" value={postForm.date} onChange={e=>setPostForm({...postForm,date:e.target.value})} style={inputStyle}/>
           <button disabled={busy||!postForm.expense||!postForm.cash||!postForm.ap} onClick={postPeriod} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>Posting</button>
         </div>
-      </div>
+      </TraceCard>
     </>}
   </div>;
 }

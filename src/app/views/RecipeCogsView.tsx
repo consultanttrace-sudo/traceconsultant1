@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { calculateRecipeCogs, type CogsInput } from '../../core/accounting';
 import { loadTraceCollections, asArray, useTraceCollections, money, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { TracePageHeader, TraceCard } from '../components/TraceUI';
 
 export function RecipeCogsView(){
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
-  const [clientId,setClientId]=useState('');
+  const [clientId,setClientId]=useClientScope();
   const [products,setProducts]=useState<Array<Record<string,unknown>>>([]);
   const [items,setItems]=useState<Array<Record<string,unknown>>>([]);
   const [recipes,setRecipes]=useState<Array<Record<string,unknown>>>([]);
@@ -44,22 +46,18 @@ export function RecipeCogsView(){
   const itemName=(itemId:string)=>String(items.find(i=>String(i.id)===itemId)?.item_name??itemId);
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}>
-      <div className="trace-muted" style={{fontSize:12}}>F&B OPERATIONS · RECIPE COGS</div>
-      <h1 style={{margin:'7px 0 5px',fontSize:30}}>HPP per produk, dari resep sungguhan.</h1>
-      <div className="trace-muted">Dihitung oleh `calculateRecipeCogs` dari data resep/BOM dan unit cost bahan yang sudah diinput di Inventory &amp; Recipe. Tidak ada input atau sumber data baru di layar ini — kalau resepnya belum lengkap, statusnya ditampilkan apa adanya, bukan ditutupi dengan angka Rp0.</div>
-    </div>
+    <TracePageHeader kicker="F&B OPERATIONS · RECIPE COGS" title="HPP per produk, dari resep sungguhan." description={'Dihitung oleh `calculateRecipeCogs` dari data resep/BOM dan unit cost bahan yang sudah diinput di Inventory & Recipe. Tidak ada input atau sumber data baru di layar ini — kalau resepnya belum lengkap, statusnya ditampilkan apa adanya, bukan ditutupi dengan angka Rp0.'} />
 
-    <div className="trace-card">
+    <TraceCard>
       <label>Klien<select value={clientId} onChange={e=>setClientId(e.target.value)} style={inputStyle}>
         <option value="">Pilih klien</option>
         {clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}
       </select></label>
       {loading&&<div className="trace-muted" style={{marginTop:8}}>Memuat…</div>}
       {msg&&<div className="trace-muted" style={{marginTop:8}}>{msg}</div>}
-    </div>
+    </TraceCard>
 
-    {clientId&&<div className="trace-card">
+    {clientId&&<TraceCard>
       <strong>HPP Resep per Produk</strong>
       <div className="trace-muted" style={{fontSize:12,marginTop:5}}>
         Qty di bawah hanya untuk simulasi jumlah unit (default 1) — HPP per unit tidak berubah karena rumusnya adalah qty × Σ(qty per sale komponen × unit cost). {productsWithRecipe.length===0?'Belum ada produk dengan resep/BOM tercatat untuk klien ini — tambahkan dulu di tab Inventory & Recipe.':''}
@@ -90,6 +88,6 @@ export function RecipeCogsView(){
           </tbody>
         </table>
       </div>}
-    </div>}
+    </TraceCard>}
   </div>;
 }

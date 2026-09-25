@@ -17,11 +17,11 @@ Set these variables for the deployed site/function environment:
 ```text
 TRACE_AI_PROVIDER=gemini
 GEMINI_API_KEY=<your Gemini API key>
-GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_MODEL=gemini-3.5-flash-lite
 TRACE_AI_TIMEOUT_MS=30000
 ```
 
-`gemini-2.5-flash-lite` is used as the default when `GEMINI_MODEL` is omitted. The model is selected because Google's current Gemini pricing documentation lists a Free Tier for Gemini 2.5 Flash-Lite.
+`gemini-3.5-flash-lite` is used as the default when `GEMINI_MODEL` is omitted. As of September 2026 this is the model Google's own Gemini API docs point new projects to ("use our latest models: 3.5 Flash-Lite or 3.8 Flash"), and its Free Tier keeps the same "free of charge" input/output pricing the original `gemini-2.5-flash-lite` choice relied on. `gemini-2.5-flash-lite` itself currently has no shutdown date announced and still works if you set `GEMINI_MODEL` back to it, but Google will only give ~6 months' notice once it does schedule one, so treat that model family as legacy going forward. Always check the live deprecations table before relying on any specific date: https://ai.google.dev/gemini-api/docs/deprecations
 
 ## 3. What becomes available in TRACE
 

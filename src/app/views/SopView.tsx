@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Trash2 } from 'lucide-react';
 import { type SOP } from '../../core/sop';
 import { requireReactSession, asArray, useTraceCollections, inputStyle } from './_shared';
+import { useClientScope } from '../clientScope';
+import { TracePageHeader, TraceCard, TraceEmptyState } from '../components/TraceUI';
 
 export function SopView(){
   const clientsLive=useTraceCollections(['trace-clients']);
   const clients=asArray(clientsLive.data['trace-clients']).filter((x):x is Record<string,unknown>=>!!x&&typeof x==='object');
-  const [clientId,setClientId]=useState('');
+  const [clientId,setClientId]=useClientScope();
   const [sops,setSops]=useState<Array<Record<string,unknown>>>([]);
   const [sopId,setSopId]=useState('');
   const [steps,setSteps]=useState<Array<Record<string,unknown>>>([]);
@@ -64,13 +66,13 @@ export function SopView(){
   const selectedSop=sops.find(s=>String(s.id)===sopId);
 
   return <div style={{display:'grid',gap:16}}>
-    <div className="trace-card" style={{padding:26}}><div className="trace-muted" style={{fontSize:12}}>SOP · VERSIONING</div><h1 style={{margin:'7px 0 5px',fontSize:30}}>SOP dengan histori versi penuh dan evidence-gate di server.</h1><div className="trace-muted">Setiap kali SOP direvisi, versi lama tidak hilang — tersimpan sebagai histori. Langkah tidak bisa ditandai "done" kalau bukti wajib belum lengkap; ini ditegakkan di database, bukan cuma di layar.</div></div>
-    <div className="trace-card"><label>Klien<select value={clientId} onChange={e=>{setClientId(e.target.value);setSopId('');setSteps([]);}} style={inputStyle}><option value="">Pilih klien</option>{clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}</select></label></div>
+    <TracePageHeader kicker="SOP · VERSIONING" title="SOP dengan histori versi penuh dan evidence-gate di server." description={'Setiap kali SOP direvisi, versi lama tidak hilang — tersimpan sebagai histori. Langkah tidak bisa ditandai "done" kalau bukti wajib belum lengkap; ini ditegakkan di database, bukan cuma di layar.'} />
+    <TraceCard><label>Klien<select value={clientId} onChange={e=>{setClientId(e.target.value);setSopId('');setSteps([]);}} style={inputStyle}><option value="">Pilih klien</option>{clients.map(c=><option key={String(c.id)} value={String(c.id)}>{String(c.name??c.business_name??c.id)}</option>)}</select></label></TraceCard>
     {msg&&<div className="trace-muted" style={{fontSize:12}}>{msg}</div>}
     {clientId&&<>
-      <div className="trace-card"><strong>Daftar SOP (versi terkini)</strong><div style={{marginTop:10,display:'grid',gap:5}}>{sops.length===0?<div className="trace-muted" style={{fontSize:12}}>Belum ada SOP.</div>:sops.map(s=><div key={String(s.id)} onClick={()=>void loadSteps(String(s.id))} style={{display:'grid',gridTemplateColumns:'1.4fr 1fr auto',gap:8,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,cursor:'pointer',background:sopId===String(s.id)?'#fafaf8':'transparent'}}><span>{String(s.name)}</span><span className="trace-muted">v{String(s.version)}</span><ArrowRight size={14} className="trace-muted"/></div>)}</div></div>
+      <TraceCard><strong>Daftar SOP (versi terkini)</strong><div style={{marginTop:10,display:'grid',gap:5}}>{sops.length===0?<TraceEmptyState message="Belum ada SOP."/>:sops.map(s=><div key={String(s.id)} onClick={()=>void loadSteps(String(s.id))} style={{display:'grid',gridTemplateColumns:'1.4fr 1fr auto',gap:8,padding:'8px 0',borderTop:'1px solid rgba(23,23,23,.06)',fontSize:13,cursor:'pointer',background:sopId===String(s.id)?'#fafaf8':'transparent'}}><span>{String(s.name)}</span><span className="trace-muted">v{String(s.version)}</span><ArrowRight size={14} className="trace-muted"/></div>)}</div></TraceCard>
 
-      {selectedSop&&<div className="trace-card">
+      {selectedSop&&<TraceCard>
         <strong>{String(selectedSop.name)} · v{String(selectedSop.version)}</strong>
         <div className="trace-muted" style={{fontSize:12,marginTop:4}}>{String(selectedSop.purpose)} — dipicu ketika: {String(selectedSop.trigger_condition)}</div>
         {progress&&<div className="trace-muted" style={{fontSize:12,marginTop:6}}>Progres: {String(progress.done_steps)}/{String(progress.total_steps)} langkah selesai ({String(progress.completion_pct)}%){Number(progress.blocked_steps)>0?` · ${progress.blocked_steps} terblokir`:''}</div>}
@@ -84,9 +86,9 @@ export function SopView(){
             <button disabled={busy} onClick={()=>void saveStep(String(s.id))} style={{border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>Simpan</button>
           </div>
         </div>;})}</div>
-      </div>}
+      </TraceCard>}
 
-      <div className="trace-card"><strong>Buat / Revisi SOP</strong><div className="trace-muted" style={{fontSize:12,marginTop:4}}>Pakai sop_key yang sama dengan SOP yang ingin direvisi untuk membuat versi baru (versi lama otomatis tersimpan sebagai histori).</div>
+      <TraceCard><strong>Buat / Revisi SOP</strong><div className="trace-muted" style={{fontSize:12,marginTop:4}}>Pakai sop_key yang sama dengan SOP yang ingin direvisi untuk membuat versi baru (versi lama otomatis tersimpan sebagai histori).</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:10}}>
           <input placeholder="Kunci SOP (mis. sop-penerimaan-barang)" value={form.sopKey} onChange={e=>setForm({...form,sopKey:e.target.value})} style={inputStyle}/>
           <input placeholder="Nama SOP" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} style={inputStyle}/>
@@ -105,7 +107,7 @@ export function SopView(){
           <button onClick={addDraftStep} style={{marginTop:8,border:'1px dashed rgba(23,23,23,.2)',borderRadius:9,padding:'7px 11px',background:'#fff',fontSize:12,fontWeight:700}}>+ Tambah Langkah</button>
         </div>
         <button disabled={busy||!form.sopKey||!form.name} onClick={createSop} style={{marginTop:14,border:0,borderRadius:9,padding:'9px 14px',background:'#171717',color:'#fff',fontWeight:700}}>Simpan SOP (versi baru)</button>
-      </div>
+      </TraceCard>
     </>}
   </div>;
 }

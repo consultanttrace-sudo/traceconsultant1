@@ -6,7 +6,7 @@ const AI_PROVIDER=(process.env.TRACE_AI_PROVIDER|| (GEMINI_KEY ? 'gemini' : OPEN
 const AI_MODEL=(process.env.TRACE_AI_MODEL||process.env.GEMINI_MODEL||process.env.OPENAI_MODEL||'').trim();
 const CUSTOM_ENDPOINT=(process.env.TRACE_AI_ENDPOINT||'').trim();
 const AI_TIMEOUT_MS=Math.max(5000,Math.min(60000,Number(process.env.TRACE_AI_TIMEOUT_MS||30000)));
-const DEFAULT_GEMINI_MODEL='gemini-2.5-flash-lite';
+const DEFAULT_GEMINI_MODEL='gemini-3.5-flash-lite';
 function configError(){
   if(!AI_MODEL && AI_PROVIDER!=='gemini')return 'AI engine belum lengkap: TRACE_AI_MODEL, GEMINI_MODEL, atau OPENAI_MODEL wajib diisi.';
   if(AI_PROVIDER==='gemini' && !GEMINI_KEY)return 'AI engine belum lengkap: GEMINI_API_KEY wajib diisi untuk provider Gemini.';

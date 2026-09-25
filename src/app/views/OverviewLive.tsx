@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { Activity } from 'lucide-react';
-import { motion } from 'motion/react';
-import { asArray, useTraceCollections } from './_shared';
+import { setScope } from '../scopeStore';
+import { scopePatchForLink } from '../../core/scope';
+import { OverviewDashboard, type OverviewModel } from '../components/OverviewDashboard';
+import { portfolioToCsv } from '../../core/portfolioHealth';
+import { usePortfolio } from '../portfolio';
 
 export function TraceOrbitHero(){
   const ref=useRef<HTMLDivElement|null>(null);
@@ -83,12 +85,42 @@ export function TraceOrbitHero(){
   return <div ref={ref} style={{width:'100%',height:'100%',minHeight:190}} aria-hidden="true"/>;
 }
 
-export function OverviewLive(){
-  const live=useTraceCollections(['trace-companies','trace-brands','trace-outlets','trace-clients']);
-  const cards=[['Companies','trace-companies'],['Brands','trace-brands'],['Outlets','trace-outlets'],['Active Clients','trace-clients']];
-  return <><div className="trace-card" style={{display:'flex',gap:20,alignItems:'stretch',flexWrap:'wrap'}}>
-    <div style={{flex:'1 1 260px',display:'flex',gap:10,alignItems:'center'}}><Activity size={18}/><div><strong>Business Twin · Live Data</strong><div className="trace-muted">Angka berasal dari Supabase; jika sumber gagal, TRACE menampilkan unavailable.</div></div></div>
-    <div className="trace-glass" style={{flex:'0 0 260px',height:190,borderRadius:16,overflow:'hidden',position:'relative'}}><TraceOrbitHero/></div>
-  </div><div className="trace-kpis" style={{marginTop:14}}>{cards.map(([name,key])=><div className="trace-card" key={key}><div className="trace-muted" style={{fontSize:12}}>{name}</div><div style={{fontSize:28,fontWeight:700,marginTop:8}}>{live.loading?'…':live.error?'—':asArray(live.data[key]).length}</div><div className="trace-muted" style={{fontSize:12,marginTop:5}}>{live.error||'Dibaca dari sumber production dengan session pengguna.'}</div></div>)}</div></>;
+/**
+ * Overview = portfolio health across all clients (or one client when filtered).
+ * Data comes from PortfolioProvider (per-client finance + persisted alerts); the API never mixes
+ * clients in one response, so each client is loaded in its own scoped call.
+ */
+export function OverviewLive({ onNavigate }: { onNavigate: (id: string) => void }){
+  const p=usePortfolio();
+  if(!p) return <div className="trace-recovery-banner">Konteks portofolio belum tersedia.</div>;
+  const phase=p.phase==='idle'?'loading':p.phase;
+  const model:OverviewModel={
+    phase:phase==='ready'||phase==='error'?phase:'loading',
+    error:p.error, progress:p.progress,
+    scopeRows:p.scopeRows, allRows:p.allRows, summary:p.summary, allSummary:p.allSummary,
+    trend:p.trend, reading:p.reading, insight:p.insight, priority:p.priority, queue:p.queue, tasksUnavailable:p.tasksUnavailable, jalur:p.jalur,
+    selectedClientId:p.filters.clientId, selectedClientName:p.selectedClientName,
+    periodLabel:p.periodLabel, range:p.filters.range
+  };
+  const share=async()=>{
+    try{await navigator.clipboard.writeText(location.href);p.notify('Link tersalin — membuka link ini menampilkan filter yang sama.');}
+    catch{p.notify('Browser menolak akses clipboard. Salin link dari address bar.');}
+  };
+  const exportCsv=()=>{
+    const rows=p.scopeRows;
+    if(!rows.length){p.notify('Belum ada data untuk diekspor.');return;}
+    const blob=new Blob(['\uFEFF'+portfolioToCsv(rows)],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=`trace-kesehatan-klien-${p.filters.period||'terbaru'}.csv`;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    p.notify(`${rows.length} klien diekspor ke CSV.`);
+  };
+  const createTask=async(clientId:string,finding:Parameters<typeof p.createWorkstreamTask>[1])=>{
+    const result=await p.createWorkstreamTask(clientId,finding);
+    p.notify(result.message);
+    return result.ok;
+  };
+  return <OverviewDashboard model={model} onSelectClient={id=>p.setFilters({clientId:id})} onRange={range=>p.setFilters({range})} onOpenModule={onNavigate} onOpenTask={id=>{p.setFilters({clientId:id});onNavigate('business');}} onOpenFor={(moduleId,clientId,period)=>{setScope(scopePatchForLink({moduleId,clientId:clientId||undefined,period}));onNavigate(moduleId);}} onCreateTask={createTask} onShare={share} onExport={exportCsv} onReload={p.reload}/>;
 }
-

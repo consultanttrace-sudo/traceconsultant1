@@ -4,6 +4,25 @@ export interface FinanceEvidence { id: string; source: FinanceSourceKind; source
 export type FinanceStatementSection = 'pendapatan_usaha'|'biaya_produksi'|'biaya_usaha_lain'|'biaya_operasional'|'biaya_non_operasional'|'pendapatan_lain'|'pengeluaran_lain';
 export interface FinanceRecord { id: string; period: string; amount: number; category: 'revenue' | 'cogs' | 'labor' | 'opex'; outletId?: string; evidence?: FinanceEvidence; accountLabel?: string; statementSection?: FinanceStatementSection; }
 
+/**
+ * Filter finance records to one outlet, for every "analitik" view that reads the global outlet
+ * scope (CashFlowView, BusinessDiagnosis, BusinessHealthView, FinanceEntry dashboard/laporan).
+ * '' (nothing selected — the OutletSelector's own "Semua outlet / pusat" placeholder) means no
+ * filter: every record, exactly today's behaviour.
+ * When an outlet IS selected, only records tagged with exactly that outletId are kept. A record
+ * with no outletId (client-level/shared — e.g. rent paid once for the whole business) belongs to
+ * no single outlet, so it is only ever counted in the unfiltered "semua outlet" view: it is never
+ * attributed to whichever outlet happens to be selected, and never double-counted across outlets.
+ * This is a decision, not a discovery — TRACE does not know whether such a record should really
+ * be split or assigned; keeping it out of every single-outlet view is the reading that cannot
+ * overstate an outlet's numbers.
+ */
+export function filterFinanceRecordsByOutlet(records: readonly FinanceRecord[], outletId: string): FinanceRecord[] {
+  const wanted = outletId.trim();
+  if (!wanted) return records as FinanceRecord[];
+  return records.filter(r => r.outletId === wanted);
+}
+
 export interface FinanceSummary {
   period: string;
   revenue: number | null;
