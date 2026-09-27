@@ -26,8 +26,22 @@ assert.equal(fs.existsSync('features/acquisition_os/acq-google-places.js'),false
 assert.equal(fs.existsSync('netlify/functions/data-intake-import.js'),true,'durable Data Intake import endpoint must be packaged');
 assert.equal(fs.existsSync('supabase/migrations/006_trace_data_intake_imports.sql'),true,'durable Data Intake import migration must be packaged');
 assert.equal(fs.existsSync('supabase/migrations/008_trace_data_intake_approval_guard.sql'),true,'Data Intake provenance/commit guard must be packaged');
+assert.equal(fs.existsSync('supabase/migrations/056_data_intake_race_fix_v73.sql'),true,'Data Intake client_id/source_hash race-condition fix (audit v73) must be packaged');
+
+// audit v73 finding #4 (2026-09-26): guard against copy-static-for-publish.mjs
+// regressing back to shipping the whole features/ tree (internal docs,
+// schema.sql, netlify function source, and a stale, checksum-divergent
+// second copy of the Acquisition tool) or the orphaned root
+// trace-acquisition-os.html, while still packaging the one file the
+// legacy classic app's iframe actually needs.
+const copyScript=fs.readFileSync('scripts/copy-static-for-publish.mjs','utf8');
+assert.doesNotMatch(copyScript,/copyDir\(\s*['"]features['"]/,'features/ must not be copied wholesale to the deployed site (audit v73 #4)');
+assert.doesNotMatch(copyScript,/copyFile\(\s*['"]trace-acquisition-os\.html['"]\s*\)/,'orphaned root Acquisition duplicate must not ship to the deployed site (audit v73 #4)');
+assert.match(copyScript,/features['"]?,\s*['"]?acquisition_os['"]?,\s*['"]?index\.html/,'legacy-classic.html\'s Acquisition iframe target must still be packaged for the deployed site');
+console.log('Acquisition duplicate cleanup (audit v73 #4): PASS');
 
 const legacy=fs.readFileSync('index.html','utf8');
+assert.match(legacy,/features\/acquisition_os\/index\.html\?embedded=1/,'legacy-classic.html must still point its Acquisition iframe at features/acquisition_os/index.html -- if this ever changes, copy-static-for-publish.mjs above needs to change with it');
 assert.match(legacy,/--accent:\s*#f9622c/);
 assert.match(legacy,/backdrop-filter:\s*blur/);
 assert.match(legacy,/prefers-reduced-motion/);

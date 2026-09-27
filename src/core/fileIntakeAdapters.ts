@@ -1,4 +1,4 @@
-import { buildIntakeResult, calculateAvailableFinance, findMappedField, normalizeHeader, parseAmount, type IntakeResult } from './dataIntake.js';
+import { aggregateDelimitedRows, buildIntakeResult, calculateAvailableFinance, detectSourceType, findMappedField, normalizeHeader, parseAmount, parseDelimitedText, type IntakeMonthlyBreakdown, type IntakeResult } from './dataIntake.js';
 import { mapTabularRows, type CanonicalPOSEventInput } from './canonicalImport.js';
 
 export interface FileAdapterResult {
@@ -69,21 +69,73 @@ function buildFromUnstructuredText(text: string, sourceFile: string): IntakeResu
   return result;
 }
 
-// SECURITY NOTE (unresolved, tracked in SECURITY_KNOWN_ISSUES.md): the 'xlsx' package pinned in
-// package.json (0.18.5) has two published high-severity advisories (GHSA-4r6h-8v6p-xvw6 prototype
-// pollution, GHSA-5pgg-2g8v-p4x9 ReDoS) that are only patched in versions distributed via
-// cdn.sheetjs.com — never republished to the public npm registry, so `npm install xlsx@latest`
-// cannot fix this. Until someone with unrestricted network access installs the CDN-distributed
-// build (or the app is migrated to an alternative library), this size cap is a partial mitigation
-// only: it shrinks the worst-case input for the ReDoS path, it does NOT close the prototype
-// pollution advisory. Do not remove this comment when "fixing" the dependency — replace it with a
-// note of what was actually done.
+/** Merge `candidate` into `combined` in place when they share the same business/outlet
+ *  identity: sums revenue/cogs/labor/opex, unions the period dimension, and merges
+ *  monthlyBreakdown per period. Returns false without mutating `combined` when the
+ *  identity differs, so the caller can warn and keep the two datasets separate instead
+ *  of double-counting. Shared by multi-sheet workbook merging and multi-file ZIP merging
+ *  — one merge rule for both. */
+function mergeIntakeIfSameIdentity(combined: IntakeResult, combinedIdentity: { businessName: string | null; outletName: string | null }, candidate: IntakeResult): boolean {
+  const identity = { businessName: candidate.businessName.value, outletName: candidate.outletName.value };
+  if (identity.businessName !== combinedIdentity.businessName || identity.outletName !== combinedIdentity.outletName) return false;
+  for (const key of ['revenue', 'cogs', 'labor', 'opex'] as const) {
+    const target = combined[key]; const incoming = candidate[key];
+    if (incoming.value !== null) { target.value = (target.value ?? 0) + incoming.value; target.status = 'available'; target.evidence = incoming.evidence; }
+  }
+  const allMonths = [...(combined.periods ?? []), ...(candidate.periods ?? [])].filter(Boolean);
+  combined.periods = [...new Set(allMonths)].sort();
+  combined.periodCount = combined.periods.length;
+  combined.periodStart = combined.periods[0] ?? null;
+  combined.periodEnd = combined.periods.at(-1) ?? null;
+  combined.period.value = combined.periods.length > 1 ? `${combined.periods[0]} → ${combined.periods.at(-1)}` : (combined.periods[0] ?? null);
+  const merged = new Map<string, IntakeMonthlyBreakdown>();
+  for (const m of [...(combined.monthlyBreakdown ?? []), ...(candidate.monthlyBreakdown ?? [])]) {
+    const cur = merged.get(m.period) || { ...m };
+    if (merged.has(m.period)) {
+      for (const key of ['revenue', 'cogs', 'labor', 'opex'] as const) { if (m[key] !== null) cur[key] = (cur[key] ?? 0) + m[key]; }
+      cur.rowCount += m.rowCount;
+      cur.financeEvidence = {
+        revenue: (cur.financeEvidence?.revenue ?? 0) + (m.financeEvidence?.revenue ?? 0),
+        cogs: (cur.financeEvidence?.cogs ?? 0) + (m.financeEvidence?.cogs ?? 0),
+        labor: (cur.financeEvidence?.labor ?? 0) + (m.financeEvidence?.labor ?? 0),
+        opex: (cur.financeEvidence?.opex ?? 0) + (m.financeEvidence?.opex ?? 0),
+      };
+    }
+    merged.set(m.period, cur);
+  }
+  combined.monthlyBreakdown = [...merged.values()].sort((a, b) => a.period.localeCompare(b.period));
+  return true;
+}
+
+/** Build a FileAdapterResult from already-split CSV/TSV headers+rows. Shared by the direct
+ *  CSV/TSV upload path (DataIntake.tsx) and by parseZip below, so there is exactly one place
+ *  that turns delimited rows into an IntakeResult + canonical rows. */
+export function parseDelimitedResult(headers: string[], rows: string[][], sourceName: string, sourceIdentity = sourceName): FileAdapterResult {
+  const aggregate = aggregateDelimitedRows(headers, rows);
+  const base = calculateAvailableFinance(buildIntakeResult(aggregate as unknown as Partial<Record<string, unknown>>));
+  base.periodStart = aggregate.periodStart; base.periodEnd = aggregate.periodEnd; base.periodCount = aggregate.periodCount; base.periods = aggregate.periods; base.monthlyBreakdown = aggregate.monthlyBreakdown;
+  base.fields.forEach(f => { if (f.status === 'available') f.evidence = { sourceFile: sourceName, sourceRow: 2, rawValue: String(f.value ?? '') }; });
+  if (aggregate.rowCount > 1) base.warnings.push(`CSV/TSV mempertahankan ${aggregate.rowCount} baris untuk canonical import; ringkasan finance di atas adalah agregasi lintas ${aggregate.periodCount || 1} periode dan breakdown bulanan dipertahankan.`);
+  return { result: base, sourceType: sourceName.toLowerCase().endsWith('.tsv') ? 'tsv' : 'csv', warnings: base.warnings, tabularRows: mapTabularRows(headers, rows, sourceName, undefined, new Date(), sourceIdentity) };
+}
+
+// SECURITY NOTE (resolved 2026-09-26, audit v73): this file parses untrusted user-uploaded
+// workbooks via XLSX.read(), which is exactly the reachable path for GHSA-4r6h-8v6p-xvw6
+// (prototype pollution, fixed >=0.19.3) and GHSA-5pgg-2g8v-p4x9 (ReDoS, fixed >=0.20.2). The
+// 'xlsx' package was pinned at 0.18.5 because SheetJS stopped publishing patched builds to the
+// public npm registry (only cdn.sheetjs.com carries >=0.19.3, and that domain isn't reachable
+// from every environment that builds this repo). Fix: switched to '@e965/xlsx' — a republish of
+// SheetJS's own >=0.20.2 builds onto the public npm registry (see package.json, DEPLOY_CHECKLIST.md)
+// — across all four call sites in this codebase (this file, financeReport.ts x2,
+// consultingReportExcel.ts), not just this one. Same API, so no other code here changed.
+// MAX_WORKBOOK_BYTES below is kept as defense-in-depth against oversized input, not as the
+// primary mitigation anymore.
 const MAX_WORKBOOK_BYTES = 15 * 1024 * 1024;
 export async function parseWorkbook(file: File, sourceIdentity=file.name): Promise<FileAdapterResult> {
   if (file.size > MAX_WORKBOOK_BYTES) {
     throw new Error(`File terlalu besar (maks ${MAX_WORKBOOK_BYTES / (1024*1024)}MB) untuk diproses.`);
   }
-  const XLSX = await import('xlsx');
+  const XLSX = await import('@e965/xlsx');
   const data = await file.arrayBuffer();
   const workbook = XLSX.read(data, { type: 'array', cellDates: true });
   const warnings: string[] = [];
@@ -113,19 +165,9 @@ export async function parseWorkbook(file: File, sourceIdentity=file.name): Promi
     if (!combined) {
       combined = candidate;
       combinedIdentity = { ...identity, period: candidate.period.value };
-    } else if (!mergeBlocked && combinedIdentity && identity.businessName === combinedIdentity.businessName && identity.outletName === combinedIdentity.outletName) {
+    } else if (!mergeBlocked && combinedIdentity && mergeIntakeIfSameIdentity(combined, combinedIdentity, candidate)) {
       // Different periods within the same business/outlet are intentionally merged into one dataset,
       // while preserving monthlyBreakdown. Unrelated business/outlet contexts remain isolated.
-      for (const key of ['revenue','cogs','labor','opex'] as const) {
-        const target = combined[key]; const incoming = candidate[key];
-        if (incoming.value !== null) { target.value = (target.value ?? 0) + incoming.value; target.status = 'available'; target.evidence = incoming.evidence; }
-      }
-      const allMonths=[...(combined.periods??[]),...(candidate.periods??[])].filter(Boolean);
-      combined.periods=[...new Set(allMonths)].sort(); combined.periodCount=combined.periods.length; combined.periodStart=combined.periods[0]??null; combined.periodEnd=combined.periods.at(-1)??null;
-      combined.period.value=combined.periods.length>1?`${combined.periods[0]} → ${combined.periods.at(-1)}`:(combined.periods[0]??null);
-      const merged=new Map<string,any>();
-      for(const m of [...(combined.monthlyBreakdown??[]),...(candidate.monthlyBreakdown??[])]) { const cur=merged.get(m.period)||{...m}; if(merged.has(m.period)){ for(const key of ['revenue','cogs','labor','opex'] as const){ if(m[key]!==null) cur[key]=(cur[key]??0)+m[key]; } cur.rowCount+=m.rowCount; cur.financeEvidence={revenue:(cur.financeEvidence?.revenue??0)+(m.financeEvidence?.revenue??0),cogs:(cur.financeEvidence?.cogs??0)+(m.financeEvidence?.cogs??0),labor:(cur.financeEvidence?.labor??0)+(m.financeEvidence?.labor??0),opex:(cur.financeEvidence?.opex??0)+(m.financeEvidence?.opex??0)}; } merged.set(m.period,cur); }
-      combined.monthlyBreakdown=[...merged.values()].sort((a,b)=>a.period.localeCompare(b.period));
     } else if (!mergeBlocked) {
       mergeBlocked = true;
       warnings.push(`Workbook memiliki beberapa sheet dengan konteks bisnis/outlet/periode berbeda; TRACE tidak menjumlahkannya secara otomatis. Review sheet secara terpisah untuk mencegah double-counting atau pencampuran periode.`);
@@ -210,4 +252,99 @@ export async function parseImage(file: File, onProgress?: (message: string) => v
   onProgress?.('OCR membaca gambar…');
   const out = await Tesseract.recognize(file, 'ind+eng', { logger: (m: { status?: string; progress?: number }) => { if (m.status) onProgress?.(`OCR: ${m.status}${typeof m.progress === 'number' ? ` ${Math.round(m.progress * 100)}%` : ''}`); } });
   return { result: buildFromUnstructuredText(out.data.text, file.name), sourceType: 'image', warnings: out.data.text.trim() ? [] : ['OCR tidak menemukan teks yang dapat dibaca.'] };
+}
+
+// A ZIP is just a folder of the file types already handled above. Each entry is unzipped in
+// memory (client-side, via fflate) and routed through the exact same per-type adapter a
+// standalone upload of that file would use, then combined with the same identity-based merge
+// rule multi-sheet workbooks already use. Nested ZIPs are not recursed into (kept for a v2).
+const MAX_ZIP_BYTES = 25 * 1024 * 1024;
+const MAX_ZIP_ENTRY_BYTES = MAX_WORKBOOK_BYTES;
+const MAX_ZIP_ENTRIES = 50;
+
+function isIgnoredZipEntry(name: string): boolean {
+  if (name.endsWith('/')) return true; // directory entry
+  const base = name.split('/').pop() || name;
+  if (!base || base.startsWith('.')) return true; // .DS_Store, dotfiles
+  if (name.startsWith('__MACOSX/')) return true;
+  return false;
+}
+
+export async function parseZip(file: File, onProgress?: (message: string) => void): Promise<FileAdapterResult> {
+  if (file.size > MAX_ZIP_BYTES) {
+    throw new Error(`File ZIP terlalu besar (maks ${MAX_ZIP_BYTES / (1024 * 1024)}MB).`);
+  }
+  const { unzipSync } = await import('fflate');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const warnings: string[] = [];
+  let skippedForSize = 0;
+  let seen = 0;
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = unzipSync(bytes, {
+      filter: (info) => {
+        if (isIgnoredZipEntry(info.name)) return false;
+        if (info.originalSize > MAX_ZIP_ENTRY_BYTES) { skippedForSize++; return false; }
+        seen++;
+        return seen <= MAX_ZIP_ENTRIES;
+      },
+    });
+  } catch {
+    throw new Error('File ZIP tidak dapat dibaca. Pastikan file benar-benar berformat ZIP dan tidak rusak.');
+  }
+  if (skippedForSize) warnings.push(`${skippedForSize} file dalam ZIP dilewati karena ukurannya melebihi ${Math.round(MAX_ZIP_ENTRY_BYTES / (1024 * 1024))}MB per file.`);
+  if (seen > MAX_ZIP_ENTRIES) warnings.push(`ZIP berisi lebih dari ${MAX_ZIP_ENTRIES} file; hanya ${MAX_ZIP_ENTRIES} pertama yang diproses.`);
+  const names = Object.keys(entries).sort();
+  if (!names.length) throw new Error('File ZIP kosong atau tidak berisi file yang bisa dibaca TRACE.');
+
+  let combined: IntakeResult | null = null;
+  let combinedIdentity: { businessName: string | null; outletName: string | null } | null = null;
+  let mergeBlocked = false;
+  let processedCount = 0;
+  let skippedUnsupported = 0;
+  const tabularRows: CanonicalPOSEventInput[] = [];
+
+  for (const entryName of names) {
+    const baseName = entryName.split('/').pop() || entryName;
+    const type = detectSourceType(baseName);
+    if (type === 'unknown' || type === 'zip') { skippedUnsupported++; continue; }
+    onProgress?.(`Membaca ${baseName} dari ZIP…`);
+    const entryBytes = entries[entryName];
+    const sourceIdentity = `${file.name} › ${entryName}`;
+    let adapterResult: FileAdapterResult;
+    try {
+      if (type === 'csv' || type === 'tsv') {
+        const { headers, rows } = parseDelimitedText(new TextDecoder('utf-8').decode(entryBytes));
+        adapterResult = parseDelimitedResult(headers, rows, baseName, sourceIdentity);
+      } else {
+        const entryFile = new File([entryBytes as BlobPart], baseName);
+        if (type === 'xlsx' || type === 'xls' || type === 'ods') adapterResult = await parseWorkbook(entryFile, sourceIdentity);
+        else if (type === 'docx') adapterResult = await parseDocx(entryFile);
+        else if (type === 'pdf') adapterResult = await parsePdf(entryFile, onProgress);
+        else if (type === 'image') adapterResult = await parseImage(entryFile, onProgress);
+        else adapterResult = await parseText(entryFile); // txt or json
+      }
+    } catch (err) {
+      warnings.push(`${baseName}: ${err instanceof Error ? err.message : 'gagal diproses'}.`);
+      continue;
+    }
+    processedCount++;
+    warnings.push(...adapterResult.warnings.map(w => `${baseName}: ${w}`));
+    tabularRows.push(...(adapterResult.tabularRows ?? []));
+    const candidate = adapterResult.result;
+    const identity = { businessName: candidate.businessName.value, outletName: candidate.outletName.value };
+    if (!combined) {
+      combined = candidate;
+      combinedIdentity = identity;
+    } else if (!mergeBlocked && combinedIdentity && mergeIntakeIfSameIdentity(combined, combinedIdentity, candidate)) {
+      // Files inside the ZIP for the same business/outlet are merged (e.g. Januari.csv,
+      // Februari.csv, Maret.csv for one outlet become a 3-month monthlyBreakdown).
+    } else if (!mergeBlocked) {
+      mergeBlocked = true;
+      warnings.push('ZIP berisi file dengan konteks bisnis/outlet berbeda; TRACE tidak menjumlahkannya secara otomatis. Upload file tersebut satu per satu, atau pisahkan per bisnis/outlet.');
+    }
+  }
+  if (skippedUnsupported) warnings.push(`${skippedUnsupported} file dalam ZIP dilewati karena formatnya tidak didukung (gunakan PDF, Excel, Word, CSV, ODS, TXT, JSON, atau gambar).`);
+  if (!combined) throw new Error('Tidak ada file yang dapat dibaca dari dalam ZIP. Format didukung: PDF, Excel, Word, CSV, ODS, TXT, JSON, atau gambar.');
+  return { result: combined, sourceType: 'zip', warnings, tabularRows, extractedRows: processedCount };
 }

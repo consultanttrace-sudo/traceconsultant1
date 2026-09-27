@@ -40,7 +40,7 @@ export async function exportFinanceExcel(
   comparison: FinanceComparison,
   meta: FinanceReportMeta,
 ): Promise<void> {
-  const XLSX = await import('xlsx');
+  const XLSX = await import('@e965/xlsx'); // CVE fix v73 audit: see fileIntakeAdapters.ts security note
   const wb = XLSX.utils.book_new();
 
   const summarySheetRows = [
@@ -222,7 +222,7 @@ function groupRows(g: StatementGroup): (string | number)[][] {
 /** Multi-sheet .xlsx matching a standard Laba Rugi layout (Pendapatan Usaha -> Laba
  *  Kotor -> Laba Operasi -> Laba Bersih), built from buildIncomeStatement() output. */
 export async function exportIncomeStatementExcel(stmt: IncomeStatement, meta: FinanceReportMeta): Promise<void> {
-  const XLSX = await import('xlsx');
+  const XLSX = await import('@e965/xlsx'); // CVE fix v73 audit: see fileIntakeAdapters.ts security note
   const wb = XLSX.utils.book_new();
   const rows: (string | number)[][] = [
     ['Laporan Laba Rugi'], [meta.clientName], [`Periode ${stmt.period}`], [],

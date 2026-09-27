@@ -1,4 +1,4 @@
-export type IntakeSourceType = 'pdf' | 'xlsx' | 'xls' | 'ods' | 'csv' | 'tsv' | 'docx' | 'txt' | 'json' | 'image' | 'unknown';
+export type IntakeSourceType = 'pdf' | 'xlsx' | 'xls' | 'ods' | 'csv' | 'tsv' | 'docx' | 'txt' | 'json' | 'image' | 'zip' | 'unknown';
 export type IntakeFieldStatus = 'available' | 'calculated' | 'missing' | 'invalid' | 'not_applicable';
 
 export interface IntakeCellEvidence {
@@ -47,7 +47,10 @@ export interface IntakeResult {
   warnings: string[];
 }
 
-const aliases: Record<string, string[]> = {
+// Exported so the Data Intake UI can render "which column names does TRACE
+// recognize?" straight from this source of truth instead of a hand-written
+// (and driftable) copy in the component.
+export const aliases: Record<string, string[]> = {
   businessName: ['business name','nama bisnis','nama usaha','company','perusahaan','coffee name','nama coffee','nama cafe','nama café'],
   outletName: ['outlet','outlet name','nama outlet','cabang','branch','lokasi'],
   period: ['period','periode','bulan','month','date','tanggal'],
@@ -56,6 +59,16 @@ const aliases: Record<string, string[]> = {
   labor: ['labor','labour','payroll','gaji','upah','beban gaji','tenaga kerja'],
   opex: ['opex','operating expense','beban operasional','biaya operasional','operational expense']
 };
+
+// Also exported for the UI: which extra column recognizes a transaction date
+// when there's no plain "period" column (used only as a period fallback).
+export const periodDateAliases: string[] = ['tanggal transaksi','transaction date','transaction_date','sold at','sold_at','occurred at','occurred_at','datetime','timestamp'];
+
+// Field key + display label, in the fixed order TRACE evaluates them. Exported
+// so the UI's documentation panel always matches buildIntakeResult exactly.
+export const INTAKE_FIELD_SPECS: Array<[string,string]> = [
+  ['businessName','Nama bisnis'],['outletName','Outlet'],['period','Periode'],['revenue','Revenue'],['cogs','COGS'],['labor','Labor'],['opex','OPEX']
+];
 
 export function normalizeHeader(value: unknown): string {
   return String(value ?? '').trim().toLowerCase().replace(/[\u00a0]/g, ' ').replace(/\s+/g, ' ');
@@ -73,6 +86,7 @@ export function detectSourceType(name: string): IntakeSourceType {
   if (ext === 'txt') return 'txt';
   if (ext === 'json') return 'json';
   if (['png','jpg','jpeg','webp'].includes(ext ?? '')) return 'image';
+  if (ext === 'zip') return 'zip';
   return 'unknown';
 }
 
@@ -115,10 +129,7 @@ function field<T>(key: string, label: string, value: T | null, status: IntakeFie
 }
 
 export function buildIntakeResult(input: Partial<Record<string, unknown>>): IntakeResult {
-  const specs: Array<[string,string]> = [
-    ['businessName','Nama bisnis'],['outletName','Outlet'],['period','Periode'],['revenue','Revenue'],['cogs','COGS'],['labor','Labor'],['opex','OPEX']
-  ];
-  const fields = specs.map(([key,label]) => {
+  const fields = INTAKE_FIELD_SPECS.map(([key,label]) => {
     const value = input[key] ?? null;
     return field(key, label, value as never, value === null || value === '' ? 'missing' : 'available');
   });
@@ -169,6 +180,16 @@ function periodRange(periods: string[]): { start: string|null; end: string|null;
   return { start: unique[0] ?? null, end: unique.at(-1) ?? null, unique };
 }
 
+/** Split raw CSV/TSV text into a header row + data rows. Shared by the direct
+ *  CSV/TSV upload path and by the ZIP adapter (a zip may contain CSV/TSV
+ *  entries), so both stay on exactly one splitting rule. */
+export function parseDelimitedText(text: string): { headers: string[]; rows: string[][] } {
+  const rows = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean)
+    .map(r => r.split(/\t|,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/).map(v => v.replace(/^\"|\"$/g, '').trim()));
+  const headers = rows[0] ?? [];
+  return { headers, rows: rows.slice(1) };
+}
+
 /** Aggregate every non-empty data row while retaining the complete period dimension. */
 export function aggregateDelimitedRows(headers: unknown[], rows: unknown[][]): DelimitedAggregate {
   const dataRows = rows.filter(r => r.some(v => String(v ?? '').trim() !== ''));
@@ -185,7 +206,7 @@ export function aggregateDelimitedRows(headers: unknown[], rows: unknown[][]): D
     return values.length ? values.reduce((a, b) => a + b, 0) : null;
   };
   const periodIdx = idx('period');
-  const occurredIdx = headers.map(normalizeHeader).findIndex(h => ['tanggal transaksi','transaction date','transaction_date','sold at','sold_at','occurred at','occurred_at','datetime','timestamp'].some(a => h===a || h.includes(a)));
+  const occurredIdx = headers.map(normalizeHeader).findIndex(h => periodDateAliases.some(a => h===a || h.includes(a)));
   const periodValues = dataRows.map(r => normalizePeriodToken(periodIdx >= 0 ? r[periodIdx] : occurredIdx >= 0 ? r[occurredIdx] : null)).filter((v): v is string => !!v);
   const range = periodRange(periodValues);
   const monthlyMap = new Map<string, IntakeMonthlyBreakdown>();

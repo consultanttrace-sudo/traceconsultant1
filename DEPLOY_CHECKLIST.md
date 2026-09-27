@@ -18,8 +18,16 @@ production dengan data klien asli.
    sungguhan — semua menghasilkan file yang valid.
 
 2. **`npm audit`**: dari 4 kerentanan (1 kritis, 2 high, 1 moderate) →
-   tinggal **1 high** (`xlsx` — lihat bagian "Belum bisa diperbaiki" di
-   bawah).
+   sempat tinggal **1 high** (`xlsx`), sekarang **0 high/critical** (audit
+   v73, 2026-09-26 — lihat bagian "Diperbaiki" di bawah). `npm audit`
+   sesudahnya menunjukkan **2 moderate** transitif baru (`uuid`, lewat
+   `exceljs`'s sendiri dependency-nya, GHSA-w5hq-g745-h8pq) yang sebelumnya
+   ketutup/tidak kelihatan di balik penghitungan `xlsx`. Tidak ada fix
+   non-breaking yang tersedia — `npm audit fix --force` yang ditawarkan
+   npm sendiri men-downgrade `exceljs` ke 3.4.0 (breaking change) hanya
+   untuk kerentanan moderate transitif. Direkomendasikan: terima risiko ini
+   untuk saat ini, pantau rilis `exceljs` berikutnya yang menaikkan pin
+   `uuid`-nya sendiri, jangan downgrade demi ini.
 
 3. **Bug mock Supabase di test suite legacy** (`tests_real/make-supa-mock.js`)
    — mock tidak implement `.abortSignal()` yang dipakai kode produksi
@@ -75,18 +83,19 @@ production dengan data klien asli.
    ikut ter-commit/ter-deploy tidak sengaja — sebelumnya tidak ada
    `.gitignore` sama sekali di proyek ini).
 
-## ⚠️ Belum bisa diperbaiki di sesi ini — perlu tindakan dari Anda
+## ✅ Diperbaiki sesi audit v73 (2026-09-26)
 
-1. **`xlsx` versi 0.18.5 — kerentanan High (prototype pollution + ReDoS)
-   belum tertutup.** Versi yang sudah dipatch (≥0.20.2) TIDAK tersedia di
-   npm registry — SheetJS (pembuat `xlsx`) memindahkan distribusi versi
-   baru ke CDN mereka sendiri (`cdn.sheetjs.com`), dan environment saya
-   tidak punya akses ke domain itu. **Tindakan yang perlu Anda lakukan**:
-   dari komputer Anda sendiri, jalankan
-   `npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`
-   (cek versi terbaru di https://sheetjs.com/), lalu jalankan
-   `npm run test:deterministic` dan `npm run test:react-production-wiring`
-   untuk pastikan tidak ada breaking change di API-nya sebelum deploy.
+1. **`xlsx` 0.18.5 (GHSA-4r6h-8v6p-xvw6 prototype pollution + GHSA-5pgg-2g8v-p4x9
+   ReDoS, keduanya High) — TERTUTUP.** Diganti dengan `@e965/xlsx@0.20.3`
+   (republish resmi build SheetJS >=0.20.2 ke npm registry publik — lihat
+   https://github.com/e965/sheetjs-npm-publisher — jadi bukan fork/paket
+   tak dikenal). API identik (`XLSX.read`/`XLSX.utils.*`/`XLSX.writeFile`),
+   diganti di keempat titik pakai: `fileIntakeAdapters.ts` (jalur parsing
+   file upload user — ini yang paling exposed ke GHSA-4r6h-8v6p-xvw6,
+   karena advisory-nya sendiri menyatakan jalur *export* tidak kena),
+   `financeReport.ts` (x2), `consultingReportExcel.ts`. `npm install` +
+   `npm run test:deterministic` sudah dijalankan ulang di sandbox ini
+   (lihat catatan di bawah) — bukan cuma diklaim.
 
 2. **RLS (Row Level Security) Supabase belum pernah diverifikasi ke
    project nyata.** Saya tidak punya kredensial Supabase Anda, jadi ini
@@ -111,10 +120,12 @@ production dengan data klien asli.
 1. `npm install` di root project (dan di `tests_real/` kalau mau jalankan
    test legacy lagi).
 2. Isi semua env var dari `.env.example` di Netlify Site settings.
-3. Apply semua migration ke project Supabase Anda, verifikasi RLS dengan
-   user non-admin sungguhan.
-4. (Opsional tapi direkomendasikan) Upgrade `xlsx` sesuai instruksi di
-   atas.
+3. Apply semua migration ke project Supabase Anda (termasuk **056** yang baru — akan berhenti
+   dengan pesan `TRACE_MIGRATION_056_PREFLIGHT` kalau `trace_data_intake_imports` sudah punya
+   baris duplikat dari race condition lama; lihat AUDIT_FIXES_v73.md kalau itu terjadi),
+   verifikasi RLS dengan user non-admin sungguhan.
+4. `xlsx` sudah diganti `@e965/xlsx@0.20.3` di sesi audit v73 — tidak ada langkah manual lagi
+   di sini. `npm install` di langkah 1 sudah menariknya.
 5. `git push` / trigger deploy — Netlify akan otomatis menjalankan
    `npm run build:site` sesuai `netlify.toml` yang sudah ada.
 6. Setelah live, cek ulang tiap section (termasuk export PDF/Excel dan

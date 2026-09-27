@@ -8,7 +8,7 @@ import type { ConsultingReport } from './reporting.js';
  * so no new dependency and no native/editable-chart claim (plain data sheets only).
  */
 export async function exportConsultingReportExcel(report: ConsultingReport): Promise<void> {
-  const XLSX = await import('xlsx');
+  const XLSX = await import('@e965/xlsx'); // CVE fix v73 audit: see fileIntakeAdapters.ts security note
   const wb = XLSX.utils.book_new();
 
   const na = 'Belum tersedia';

@@ -13,11 +13,68 @@ diberi banner "DIHENTIKAN" di baris pertama masing-masing — tapi jangan buat `
 Semua status terkini mulai sekarang HANYA di sini.
 
 Snapshot sumber terakhir yang benar-benar diverifikasi end-to-end: ZIP
-`traceconsultant1-main_PHASE2_v18_cleaned.zip` (v16 → v17 → v18, lihat "Gap v17→v18 DITUTUP" di
-bawah untuk kapan/bagaimana v18 genuinely dikonfirmasi). Catatan: bagian-bagian di bawah yang
-menyebut "v14" ditulis sebelum v15/v16/v17/v18; perbedaan isi baris-per-baris v14→v18 TIDAK
-pernah di-diff manual — yang diverifikasi adalah HASIL AKHIR v18 (typecheck/test/build genuinely
-PASS, lihat "Terverifikasi PASS"), bukan histori perubahan tiap versi. Riwayat sebelumnya:
+`traceconsultant1-main_v73_data_intake_zip_and_team_fix.zip` (lihat "Sesi 2026-09-26" di bawah).
+Sebelum itu: `traceconsultant1-main_PHASE2_v18_cleaned.zip` (v16 → v17 → v18, lihat "Gap v17→v18
+DITUTUP" di bawah untuk kapan/bagaimana v18 genuinely dikonfirmasi). Catatan: bagian-bagian di
+bawah yang menyebut "v14" ditulis sebelum v15/v16/v17/v18; perbedaan isi baris-per-baris v14→v18
+TIDAK pernah di-diff manual — yang diverifikasi adalah HASIL AKHIR v18 (typecheck/test/build
+genuinely PASS, lihat "Terverifikasi PASS"), bukan histori perubahan tiap versi. Riwayat sebelumnya:
+
+**Sesi 2026-09-26 (dari `traceconsultant1-main__2_.zip`, user report) — Data Intake ZIP support +
+bug lintas-akun:**
+- **Bug ditemukan & diperbaiki — Data Intake import di-scope per-`actor_user_id`, bukan per-klien**:
+  `trace_transition_data_intake` (migrasi 035) dan `trace_commit_canonical_pos_import` (migrasi 030)
+  mencari baris `trace_data_intake_imports` yang ada dengan `where actor_user_id=...`, jadi kalau
+  Tim Member A mengupload file dan baru sampai Draft/Reviewed (belum Approve), Tim Member B yang
+  login tidak bisa melihat progres A sama sekali (dianggap "belum ada apa-apa") — persis gejala
+  yang dilaporkan user ("email A isi, di email B datanya gaada"). RLS policy
+  `trace_data_intake_imports_member` juga membatasi SELECT ke `actor_user_id=auth.uid() or
+  trace_is_leader()`, tidak konsisten dengan `trace_is_org_member()` yang sengaja team-wide (lihat
+  komentarnya sendiri di migrasi 024/030). **Diperbaiki** di migrasi baru `055_data_intake_team_visibility_fix.sql`
+  (tidak mengedit migrasi lama): lookup jadi `client_id`+`source_hash` dulu (fallback ke
+  `actor_user_id`+`client_id is null` hanya untuk draft yang belum punya klien), RLS SELECT jadi
+  `trace_is_team_member()`. Regression test: `tests_core/test_data_intake_team_visibility_v55.mjs`.
+  **BELUM diverifikasi terhadap Supabase live** (lihat External blockers) — migrasi ini harus
+  dijalankan manual di SQL editor Supabase project user, sama seperti migrasi 053/054 sebelumnya.
+- **Fitur baru — upload ZIP di Data Intake**: sebelumnya `.zip` sama sekali tidak ada di
+  `detectSourceType`/`accept` attribute, jadi selalu ditolak sebagai "format tidak didukung".
+  Ditambahkan `parseZip()` (`fileIntakeAdapters.ts`, pakai `fflate` — dependency baru,
+  `unzipSync` di-load lazy via `await import('fflate')` sama seperti pola `xlsx`/`mammoth`/
+  `pdfjs-dist`/`tesseract.js` yang sudah ada): unzip di browser, proses tiap entry lewat adapter
+  per-tipe yang SAMA PERSIS dengan upload satu file (tidak ada engine parsing kedua), lalu gabung
+  hasilnya pakai aturan identity yang SAMA dengan merge multi-sheet Excel (`mergeIntakeIfSameIdentity`,
+  diekstrak dari logic `parseWorkbook` yang sudah ada, dipakai ulang bukan diduplikasi) — beda
+  bisnis/outlet TIDAK digabung otomatis (warning), entry format tidak didukung dilewati (warning),
+  cap ukuran per-entry & jumlah entry untuk jaga performa. Regression test:
+  `tests_core/test_data_intake_zip_support_v55.mjs`.
+- **Dokumentasi kolom yang sebelumnya tidak ada**: panel `<details>` baru di `DataIntake.tsx`
+  ("Format & kolom yang dikenali TRACE") me-render daftar 7 field + alias-nya LANGSUNG dari
+  `aliases`/`INTAKE_FIELD_SPECS` yang baru di-`export` di `dataIntake.ts` (bukan teks hardcode
+  terpisah yang bisa nyimpang dari parser sungguhan), plus catatan eksplisit bahwa Overview/
+  Diagnosis membaca `monthlyBreakdown` (bukan angka total) sehingga kolom Periode/Tanggal wajib
+  kebaca. Tombol "Unduh Template CSV" generate file kosong dengan header benar + 3 baris Periode
+  bulan terakhir sudah terisi.
+- **Contoh data akuntansi** (diminta user, ditaruh di `docs/data-intake/`, DI LUAR kode aplikasi):
+  `contoh-data-akuntansi-trace.csv` (1 file, 3 bulan) dan `contoh-data-akuntansi-trace.zip` (data
+  sama, dipecah 3 file bulanan) — Kopi Senja/Kemang, tren COGS% naik 35%→37%→39% supaya Business
+  Diagnosis punya temuan nyata. Kedua file diverifikasi lewat script Node terpisah (compile
+  `dataIntake.ts`/`fileIntakeAdapters.ts` standalone dgn `tsc`, lib DOM) memanggil fungsi
+  produksi yang sama persis: coverage 100%, `monthlyBreakdown` 3 bulan terisi. `PANDUAN-DATA-INTAKE.md`
+  (di folder sama) merangkum semuanya untuk dibaca di luar aplikasi.
+- **Regresi kecil ditemukan & diperbaiki**: `.nvmrc`/`.node-version` (sempat diperbaiki sesi
+  2026-09-21, lihat "Catatan kejujuran sesi 2026-09-21" di bawah) HILANG LAGI dari export ZIP
+  `traceconsultant1-main__2_.zip` yang diupload user sesi ini — kemungkinan ke-skip saat proses
+  export/zip (dotfile). Dibuat ulang isinya sama (`22.22.2`), plus `dist/`/`.core-test-dist/`/
+  `.DS_Store` ditambahkan ke `.gitignore` (belum pernah ditambahkan eksplisit walau sudah tidak
+  di-commit sejak sesi 2026-09-23).
+- **Terverifikasi PASS genuinely dijalankan sesi ini:** `npm run typecheck:core` (0 error),
+  `npx tsc -p tsconfig.react.json` (0 error), `npx tsc -p tsconfig.core-platform.json` (0 error),
+  `npm run build:react`, `npm run test:deterministic` (**67 file** — 65 lama + 2 baru sesi ini —
+  SEMUA PASS, dijalankan penuh dari awal sampai akhir dua kali setelah `.nvmrc` diperbaiki).
+  Version bump `3.2.4-total-audit-hardening-v72.11` → `3.2.5-data-intake-zip-team-fix-v73`
+  (`package.json` + `TRACE_RELEASE_VERSION.txt`, dites `v58-production-evidence.mjs`).
+  **TIDAK dijalankan** (tidak ada akses sesi ini, sama seperti sesi-sesi sebelumnya): Supabase
+  RLS/RPC live, deploy Netlify sungguhan, browser E2E/visual.
 
 **Sesi 2026-09-23 (dari `traceconsultant1-main_PHASE2_v18_verified.zip`) — 3 keputusan dieksekusi:**
 - `core/business.ts` **dihapus** (dikonfirmasi 0 caller aplikasi). Koreksi atas premis awal: 0
@@ -216,11 +273,12 @@ marketing, reporting`
 `sop.validateSOP`) SUDAH DIBERESKAN di kode v14. `inventoryIntelligence.ts` masih hanya
 dipakai di Business Health, bukan di tab Inventory sendiri (tab Inventory murni CRUD RPC).
 
-## Masih PARTIAL / butuh keputusan desain (belum dicek ulang sesi ini, dibawa dari snapshot lama)
-- **Client CRUD**: belum ada RPC/migration insert/update/delete `trace-clients` dengan RLS scope.
-- **Stock opname/reconciliation Inventory**: belum ada tabel/RPC selisih stok fisik vs sistem
-  (konsisten dengan `inventoryIntelligence.ts` yang tidak dipakai di tab Inventory).
-- **Labor & OPEX detail**: masih level kategori record.
+## Selesai (diverifikasi ulang audit v73, 2026-09-26 -- baca langsung migration & pemanggilnya, bukan diasumsikan dari sesi sebelumnya)
+- **Client CRUD**: lengkap sejak `042_client_master_crud.sql` (`trace_list_clients`/`trace_create_client`/`trace_update_client`/`trace_delete_client`, RLS team-scoped), dipanggil dari `ClientsView.tsx`.
+- **Stock opname/reconciliation Inventory**: lengkap sejak `044`-`045_inventory_opname_*_v72.sql` (state machine counting->reviewing->approved->posted->cancelled, optimistic locking, posting varians ke jurnal akuntansi), dipanggil dari `StockOpnameView.tsx`.
+- **Labor & OPEX detail**: lengkap sejak `046_labor_payroll_detail_v72.sql` & `047_opex_detail_v72.sql` (master karyawan/payroll & kategori OPEX per outlet), `PayrollView.tsx`/`OpexDetailView.tsx`.
+
+## Masih PARTIAL / butuh keputusan desain (diverifikasi ulang sesi 2026-09-22, masih akurat)
 - **Marketing/Action Plan/Acquisition/Business Twin vs modul core bernama sama — SUDAH
   DIAUDIT sesi 2026-09-22** (rincian di `UI_WIRING_BACKLOG.md`): `ActionPlanView`/`MarketingView`
   BUKAN gap (RPC/SQL — migration 050 & 051 — menegakkan aturan yang sama persis dengan
@@ -243,8 +301,18 @@ dipakai di Business Health, bukan di tab Inventory sendiri (tab Inventory murni 
   code seperti `business.ts`.
 
 ## External blockers (bukan bug kode)
-1. Supabase migrations/RLS/tenant-isolation & RPC baru (053, 054) belum dites terhadap
-   project production nyata. Sama untuk pemuatan 10 resource sinyal jalur kerja per klien (fetch
+1. Supabase migrations/RLS/tenant-isolation & RPC baru (053, 054, **055** — fix visibilitas tim
+   Data Intake, sesi 2026-09-26 — dan **056** — fix race condition & cross-client false collision
+   di atasnya, audit v73 sesi ini) belum dites terhadap project production nyata. Migration 056
+   SUDAH diverifikasi jalan bersih dan menutup race-nya secara nyata (bukan cuma dibaca) di
+   Postgres 16 lokal dengan skema tiruan (stub `auth.uid()`/`trace_is_team_member`/dst, bukan
+   project Supabase sungguhan) — lihat AUDIT_FIXES_v73.md untuk metodenya. Yang masih belum bisa
+   dicek dari sini: nama constraint auto-generated migration 006 di project production nyata
+   (migration 056 fail-safe via IF EXISTS kalau namanya beda), RLS dengan user non-admin
+   sungguhan, dan apakah trace_data_intake_imports production sudah punya baris duplikat dari
+   race ini sebelum migration 056 jalan (kalau ada, migration akan berhenti dgn pesan
+   TRACE_MIGRATION_056_PREFLIGHT, bukan silently korup atau silently skip). Sama untuk
+   pemuatan 10 resource sinyal jalur kerja per klien (fetch
    `/api/trace-data?resources=...&client_id=...` dari Overview) — belum pernah dipanggil sungguhan.
 2. Real Netlify deployment smoke test belum dijalankan.
 3. Environment Node harus `>=22.22.2 <23` sesuai `engines` (terverifikasi genuinely PASS

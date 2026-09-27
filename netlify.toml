@@ -17,6 +17,16 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
+# audit v73 finding #4 (2026-09-26): trace-acquisition-os.html was a stale,
+# unreferenced duplicate of the Acquisition tool and is no longer copied to
+# the deployed site (see scripts/copy-static-for-publish.mjs). Anyone with
+# an old bookmark/link lands on the canonical, currently-embedded copy
+# instead of a 404.
+[[redirects]]
+  from = "/trace-acquisition-os.html"
+  to = "/acquisition/index.html"
+  status = 301
+
 [context.deploy-preview.environment]
   NODE_VERSION = "22.22.2"
 
