@@ -141,14 +141,30 @@ export function PortfolioProvider({ enabled, onNotify, children }: { enabled: bo
 
   // A client id from a stale link/bookmark that is not in the FULL client list is cleared from the shared scope for ALL modules
   // (together with its outlet) instead of every module silently loading an empty client.
+  // v74.3 FIX — the client list is fetched once and cached (listRef). A client created AFTER that first fetch (Klien → Tambah)
+  // was therefore "unknown" here: the moment it was picked in any selector, this effect ran against the stale list, treated the
+  // fresh id as a dead bookmark and cleared it (toast "Klien pada link tidak ditemukan"), so a new client could not be selected
+  // until a full page reload. Now an id that is missing from the cached list triggers ONE fresh fetch first; it is only cleared
+  // if the server's current list also lacks it. If the refetch itself fails nothing is cleared (fail-open, never lose the selection).
   useEffect(() => {
     if (!allClientIds) return;
     const { dropped } = reconcileScope(getScope(), { clientIds: allClientIds });
-    if (dropped.includes('client')) {
-      dispatchScope({ type: 'client', clientId: '' });
-      onNotify('Klien pada link tidak ditemukan — filter klien dibersihkan.');
-    }
-  }, [allClientIds, scopeClient, onNotify]);
+    if (!dropped.includes('client')) return;
+    let alive = true;
+    listRef.current = null;
+    getList().then(fresh => {
+      if (!alive) return;
+      const ids = fresh.map(c => c.id);
+      if (reconcileScope(getScope(), { clientIds: ids }).dropped.includes('client')) {
+        dispatchScope({ type: 'client', clientId: '' });
+        onNotify('Klien pada link tidak ditemukan — filter klien dibersihkan.');
+      } else {
+        setClientList(fresh.slice(0, CLIENT_CAP));
+        setAllClientIds(ids);
+      }
+    }).catch(() => { /* keep the selection; the Overview reports load errors itself */ });
+    return () => { alive = false; };
+  }, [allClientIds, scopeClient, onNotify, getList]);
 
   useEffect(() => {
     if (!enabled || started.current === nonce) return;

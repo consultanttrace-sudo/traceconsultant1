@@ -130,7 +130,7 @@ export function DataIntake(){
     URL.revokeObjectURL(url);
   };
   const onFile=async(e:React.ChangeEvent<HTMLInputElement>)=>{
-    const file=e.target.files?.[0]; if(!file)return; setBusy(true);setError('');setPersistMessage('');setFileName(file.name);setResult(null);setManual({});setReviewState('draft');setSourceHash('');
+    const file=e.target.files?.[0]; if(!file)return; setBusy(true);setError('');setPersistMessage('');setRecovered(false);setFileName(file.name);setResult(null);setManual({});setReviewState('draft');setSourceHash('');
     try{
       const type=detectSourceType(file.name);
       const computedHash=await sha256(file);
