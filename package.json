@@ -1,7 +1,7 @@
 {
   "name": "trace-consultant-os",
   "private": true,
-  "version": "3.2.5-data-intake-zip-team-fix-v73",
+  "version": "3.2.6-data-intake-atomic-finance-commit-v74",
   "type": "module",
   "scripts": {
     "typecheck:core": "tsc --noEmit",

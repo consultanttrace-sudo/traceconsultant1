@@ -33,8 +33,12 @@ exports.handler=async event=>{
       if(/TRACE_IMPORT_CLIENT_FORBIDDEN/i.test(detail))return json(403,{error:'Client scope tidak diizinkan untuk user ini.'},event);
       if(/TRACE_IMPORT_INVALID_STATUS_TRANSITION/i.test(detail))return json(409,{error:'Status import tidak mengikuti alur Draft → Reviewed → Approved.'},event);
       if(/TRACE_IMPORT_TEAM_MEMBER_REQUIRED|TRACE_IMPORT_AUTH_REQUIRED/i.test(detail))return json(403,{error:'User tidak memiliki akses team TRACE.'},event);
+      if(/TRACE_FINANCE_NEGATIVE_IMPORTED_AMOUNT/i.test(detail))return json(400,{error:'Approve dibatalkan: ada nilai negatif di Revenue/COGS/Labor/OPEX pada salah satu bulan. Perbaiki datanya lalu approve ulang.'},event);
+      if(/TRACE_FINANCE_IMPORT_NOT_APPROVED_OR_SCOPED/i.test(detail))return json(409,{error:'Approve dibatalkan: baris import untuk client/hash ini tidak ditemukan lagi. Muat ulang lalu coba lagi.'},event);
+      if(/TRACE_FINANCE_IMPORT_SCOPE_REQUIRED|TRACE_FINANCE_IMPORT_ACTOR_FORBIDDEN/i.test(detail))return json(403,{error:'Approve dibatalkan: scope client atau akses team tidak valid untuk commit finance.'},event);
+      if(/TRACE_PERIOD_LOCKED/i.test(detail))return json(409,{error:'Approve dibatalkan: salah satu periode pada data ini sudah dikunci (period lock).'},event);
       return json(r.status>=400&&r.status<500?r.status:502,{error:'Data Intake persistence failed',detail:detail.slice(0,300)},event);
     }
-    return json(202,{ok:true,status,idempotent:body?.idempotent??false,import:body?.import??body},event);
+    return json(202,{ok:true,status,idempotent:body?.idempotent??false,import:body?.import??body,finance:body?.finance??null},event);
   }catch(error){return json(502,{error:error?.name==='AbortError'?'Data Intake persistence timeout':'Data Intake persistence unavailable'},event)}
 };

@@ -153,3 +153,11 @@ After deployment, verify:
 - Module supports manual operational assumptions: seats, tables, seats/table, turns, occupancy, average ticket, operating days/hours, parking capacity/conversion, takeaway capacity, fixed cost, variable cost, desired profit, and actual revenue.
 - Calculation separates break-even revenue, profit-target revenue, theoretical capacity revenue, daily target, target transaction volume, required effective turns, and capacity/current gaps.
 - Saved plans are client-scoped in `trace_fnb_target_plans` with manual provenance and versioning.
+
+## v74.1 — WAJIB apply migration 058
+- `supabase/migrations/058_fix_commit_intake_finance_ambiguous_category.sql` memperbaiki
+  `ERROR: column reference "category" is ambiguous` pada `trace_commit_intake_finance`.
+  Tanpa 058, SETIAP Approve Data Intake gagal (dan sejak 057 di-rollback), sehingga
+  `trace_finance_records` kosong dan Overview/analisa klien tidak terbaca.
+- Setelah apply 058: buka Data Intake, klik "Coba lagi (commit finance)" pada file yang tadinya stuck.
+- Verifikasi lokal: `psql -f tests_real/sql/approve_finance_commit.test.sql` harus mencetak PASS.
