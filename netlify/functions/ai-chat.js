@@ -78,6 +78,10 @@ function extractGemini(data){
   return answer;
 }
 
+function extractOpenAI(data){
+  return data?.choices?.[0]?.message?.content||data?.output_text||data?.output||data?.message||'';
+}
+
 function geminiFailure(data){
   const blockReason=data?.promptFeedback?.blockReason;
   const candidate=data?.candidates?.[0];
@@ -219,3 +223,4 @@ exports.handler=async e=>{
     };
   }
 };
+  
